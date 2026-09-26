@@ -7,4 +7,5 @@ pub enum DomainError {
     MissingDimension,
     UnexpectedDimension,
     UnknownUnit,
+    UnknownDiameter,
 }

@@ -12,6 +12,7 @@ from metrado.theme import apply_theme
 from metrado.sheet import (
     example_rows, new_row, parent_item, read_project, subtree_end, write_project,
 )
+from metrado.steel import first_steel_item
 
 
 class PlantillaWindow(QMainWindow):
@@ -30,12 +31,12 @@ class PlantillaWindow(QMainWindow):
         self.title_edit = QLineEdit("Ejemplo de planilla de metrado")
         self.title_edit.setPlaceholderText("Nombre de la obra o proyecto")
         header_toolbar(self, self.title_edit)
-        hint = QLabel("Capítulo → partida → detalle  ·  Doble clic o F2 para editar  ·  Tab para avanzar  ·  Cantidad directa para áreas o pesos conocidos")
+        hint = QLabel("Acero: elige Diámetro con doble clic o F2 · Largo, gancho y empalme en metros · N.º de veces = cantidad de barras")
         hint.setObjectName("sheetHint")
         hint.setWordWrap(True)
         layout.addWidget(hint)
         layout.addWidget(self.table, 1)
-        note = QLabel("Dimensiones en metros. Los resultados incluyen elementos similares × n.º de veces. Totales por partida; visualización a 2 decimales.")
+        note = QLabel("Acero: Lon. = Elem. simil. × (Largo + gancho + empalme) × N.º de veces; Kg = Lon. × kg/m. Totales por partida.")
         note.setObjectName("sheetNote")
         note.setWordWrap(True)
         layout.addWidget(note)
@@ -61,6 +62,12 @@ class PlantillaWindow(QMainWindow):
         apply_theme(self)
         self._refresh_title()
         self._selection_status()
+        self._focus_steel()
+
+    def _focus_steel(self):
+        index = first_steel_item(self.model.rows)
+        if index is not None:
+            self._select(index)
 
     def _action(self, toolbar, text, callback, shortcut=None):
         return add_action(self, toolbar, text, callback, shortcut)
@@ -79,11 +86,9 @@ class PlantillaWindow(QMainWindow):
         if index.isValid() and index.row() in self.model.errors:
             message = self.model.errors[index.row()]
         else:
-            items = sum(row["kind"] == "item" for row in self.model.rows)
-            details = sum(row["kind"] == "detail" for row in self.model.rows)
-            pending = sum(self.model.rows[r]["kind"] == "detail" for r in self.model.errors)
-            message = f"{items} partidas · {details} detalles · {pending} detalles pendientes"
-        self.statusBar().showMessage(message)
+            message = self.model.summary_text
+        if self.statusBar().currentMessage() != message:
+            self.statusBar().showMessage(message)
 
     def _select(self, row, column=1):
         index = self.model.index(row, column)
@@ -181,6 +186,7 @@ class PlantillaWindow(QMainWindow):
         self._path, self._dirty = path, False
         self._refresh_title()
         self._selection_status()
+        self._focus_steel()
 
     def new_project(self):
         if self._can_discard():

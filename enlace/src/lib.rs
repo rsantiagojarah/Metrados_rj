@@ -23,8 +23,25 @@ fn to_py(error: DomainError) -> PyErr {
         DomainError::MissingDimension => "missing_dimension",
         DomainError::UnexpectedDimension => "unexpected_dimension",
         DomainError::UnknownUnit => "unknown_unit",
+        DomainError::UnknownDiameter => "unknown_diameter",
     };
     PyValueError::new_err(code)
+}
+
+#[pyfunction]
+fn ask_sheet_steel(
+    largo: f64,
+    gancho: f64,
+    empalme: f64,
+    diameter: &str,
+    bars: f64,
+    elements: f64,
+    veces: f64,
+) -> PyResult<(f64, f64, f64)> {
+    let quantity =
+        metrado_calculo::sheet_steel(largo, gancho, empalme, diameter, bars, elements, veces)
+            .map_err(to_py)?;
+    Ok((quantity.length, quantity.kg_per_m, quantity.weight))
 }
 
 #[pyfunction]
@@ -53,6 +70,7 @@ fn ask_sheet_total(quantities: Vec<f64>) -> PyResult<f64> {
 fn _enlace(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(ask_quantity, module)?)?;
     module.add_function(wrap_pyfunction!(ask_sheet_quantity, module)?)?;
+    module.add_function(wrap_pyfunction!(ask_sheet_steel, module)?)?;
     module.add_function(wrap_pyfunction!(ask_sheet_total, module)?)?;
     Ok(())
 }

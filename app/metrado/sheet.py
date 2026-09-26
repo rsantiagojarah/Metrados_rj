@@ -6,18 +6,20 @@ from pathlib import Path
 import tempfile
 
 UNITS = ("m", "m2", "m3", "kg", "und", "mes", "vje", "glb")
-RESULT_COLUMN = {"m": 8, "m2": 9, "m3": 10, "kg": 11,
+RESULT_COLUMN = {"m": 8, "m2": 9, "m3": 10, "kg": 12,
                  "und": 12, "mes": 12, "vje": 12, "glb": 12}
 DIMENSIONS = {"m": ((4, "longitud"),),
               "m2": ((4, "largo"), (5, "ancho")),
-              "m3": ((4, "largo"), (5, "ancho"), (6, "alto"))}
+              "m3": ((4, "largo"), (5, "ancho"), (6, "alto")),
+              "kg": ((4, "largo"), (5, "gancho"), (6, "empalme"), (7, "diametro"), (10, "barras"))}
 
 
 def new_row(kind, code="", description="", unit="m"):
     cells = [""] * 14
     cells[0:3] = [code, description, unit if kind != "chapter" else ""]
     if kind == "detail":
-        cells[3] = cells[7] = "1"
+        cells[3] = "1"
+        cells[7 if unit != "kg" else 9] = "1"
     return {"kind": kind, "cells": cells, "direct": ""}
 
 
@@ -34,11 +36,46 @@ def example_rows():
             new_row("item", "00.02.04", "MOVILIZACIÓN Y DESMOVILIZACIÓN MAQUINARIA Y/O EQUIPO", "vje"),
             new_row("item", "00.02.05", "DEMOLICIÓN DE ESTRUCTURAS DE CONCRETO ARMADO", "m3"),
             new_row("item", "00.02.06", "DEMOLICIÓN DE PAVIMENTO ASFÁLTICO Y CONCRETO C/EQUIPO PESADO", "m2"),
-            new_row("detail", description="PAVIMENTO ASFALTO", unit="m2")]
+            new_row("detail", description="PAVIMENTO ASFALTO", unit="m2"),
+            new_row("chapter", "01.02", "CONCRETO ARMADO"),
+            new_row("item", "01.02.02.03", "ESTRIBOS, ACERO Fy=42000 kg/cm2", "kg")]
     rows[2]["cells"][7] = "6"
     rows[4]["cells"][4] = "80.00"
     rows[12]["direct"] = "837.13"
+    rows.extend(_steel_example_details())
     return rows
+
+
+def steel_detail(description, similar, largo, gancho, empalme, diameter, bars):
+    row = new_row("detail", description=description, unit="kg")
+    row["cells"][3] = str(similar)
+    row["cells"][4:8] = [str(largo), str(gancho), str(empalme), diameter]
+    row["cells"][9] = "1"
+    row["cells"][10] = str(bars)
+    return row
+
+
+def _steel_example_details():
+    return [
+        steel_detail("VERTICAL INTERIOR CONTINUO 53 Ø1\"", 2, 10.85, 0.61, 1.15, "1\"", 53),
+        steel_detail("VERTICAL INTERIOR CORTADO 53 Ø1\"", 2, 5.35, 0.31, 0, "1\"", 53),
+        steel_detail("VERTICAL EXTERIOR 66 Ø1\"", 2, 10.85, 0.61, 1.15, "1\"", 66),
+        steel_detail("TRANSVERSAL INTERIOR 44 Ø3/4\"", 2, 13.15, 0.46, 0.85, "3/4\"", 44),
+        steel_detail("TRANSVERSAL EXTERIOR 44 Ø3/4\"", 2, 13.15, 0.46, 1.15, "3/4\"", 44),
+        steel_detail("TEMPERATURA CARA SUPERIOR 8 Ø1\"", 2, 13.15, 0.61, 1.15, "1\"", 8),
+        steel_detail("VERTICAL INTERIOR CAJUELA PRINCIPAL 6 Ø3/4\"", 2, 2.15, 0.46, 0, "3/4\"", 6),
+        steel_detail("VERTICAL EXTERIOR CAJUELA PRINCIPAL 6 Ø3/4\"", 2, 2.15, 0.46, 0, "3/4\"", 6),
+        steel_detail("HORIZONTAL INTERIOR CAJUELA PRINCIPAL 5 Ø5/8\"", 2, 13.15, 0.38, 0.73, "5/8\"", 5),
+        steel_detail("HORIZONTAL EXTERIOR CAJUELA PRINCIPAL 5 Ø5/8\"", 2, 13.15, 0.38, 0.73, "5/8\"", 5),
+        steel_detail("VERTICAL INTERIOR CAJUELA LATERAL IZQ 7 Ø3/4\"", 2, 2.15, 0.46, 0, "3/4\"", 7),
+        steel_detail("VERTICAL EXTERIOR CAJUELA LATERAL IZQ 7 Ø3/4\"", 2, 2.15, 0.46, 0, "3/4\"", 7),
+        steel_detail("HORIZONTAL INTERIOR CAJUELA LATERAL IZQ 5 Ø5/8\"", 2, 1.30, 0.38, 0, "5/8\"", 5),
+        steel_detail("HORIZONTAL EXTERIOR CAJUELA LATERAL IZQ 5 Ø5/8\"", 2, 1.30, 0.38, 0, "5/8\"", 5),
+        steel_detail("VERTICAL INTERIOR CAJUELA LATERAL DER 7 Ø3/4\"", 2, 2.15, 0.46, 0, "3/4\"", 7),
+        steel_detail("VERTICAL EXTERIOR CAJUELA LATERAL DER 7 Ø3/4\"", 2, 2.15, 0.46, 0, "3/4\"", 7),
+        steel_detail("HORIZONTAL INTERIOR CAJUELA LATERAL DER 5 Ø5/8\"", 2, 1.30, 0.38, 0, "5/8\"", 5),
+        steel_detail("HORIZONTAL EXTERIOR CAJUELA LATERAL DER 5 Ø5/8\"", 2, 1.30, 0.38, 0, "5/8\"", 5),
+    ]
 
 
 def parent_item(rows, index):
@@ -91,11 +128,37 @@ def calculate(rows, engine):
         cells = row["cells"]
         try:
             number = lambda text: float(text.strip().replace(",", "."))
-            direct = number(row["direct"]) if row["direct"].strip() else None
-            dimensions = [] if direct is not None else [
-                (name, number(cells[column])) for column, name in DIMENSIONS.get(unit, ())]
-            quantity = engine.ask_sheet_quantity(
-                unit, dimensions, number(cells[3]), number(cells[7]), direct)
+            if row["direct"].strip():
+                if unit == "kg":
+                    values[(index, 7)] = number(cells[9])
+                quantity = engine.ask_sheet_quantity(
+                    unit, [], number(cells[3]),
+                    number(cells[9]) if unit == "kg" else number(cells[7]),
+                    number(row["direct"]))
+            elif unit == "kg":
+                times = engine.ask_sheet_quantity(
+                    "und", [], number(cells[10]),
+                    number(cells[9]) if cells[9].strip() else 1.0, None)
+                values[(index, 7)] = times
+                if not cells[7].strip():
+                    raise ValueError("diameter")
+                length, kg_m, quantity = engine.ask_sheet_steel(
+                    number(cells[4]),
+                    number(cells[5]) if cells[5].strip() else 0.0,
+                    number(cells[6]) if cells[6].strip() else 0.0,
+                    cells[7].strip(),
+                    number(cells[10]),
+                    number(cells[3]),
+                    number(cells[9]) if cells[9].strip() else 1.0,
+                )
+                values[(index, 8)] = engine.ask_sheet_quantity(
+                    "m", [("longitud", length)], number(cells[3]), times, None)
+                values[(index, 11)] = kg_m
+            else:
+                dimensions = [
+                    (name, number(cells[column])) for column, name in DIMENSIONS.get(unit, ())]
+                quantity = engine.ask_sheet_quantity(
+                    unit, dimensions, number(cells[3]), number(cells[7]), None)
             values[(index, RESULT_COLUMN[unit])] = quantity
             quantities.append(quantity)
         except (ValueError, KeyError, OverflowError):
@@ -134,15 +197,23 @@ def read_project(path):
             raise ValueError("Hay detalles sin una partida asociada.")
         else:
             cells[2] = current
-        cells[8:14] = [""] * 6
+        clear_results(cells, current or cells[2])
     return data["title"], data["rows"]
+
+
+def clear_results(cells, unit=""):
+    """Drop calculated cells; keep steel veces (9) and n° de barras (10)."""
+    for column in range(8, 14):
+        if unit == "kg" and column in (9, 10):
+            continue
+        cells[column] = ""
 
 
 def write_project(path, title, rows):
     """Atomic replacement keeps an existing project intact if writing fails."""
     data = {"version": 1, "title": title, "rows": deepcopy(rows)}
     for row in data["rows"]:
-        row["cells"][8:14] = [""] * 6
+        clear_results(row["cells"], row["cells"][2])
     path = Path(path)
     temporary = None
     try:
