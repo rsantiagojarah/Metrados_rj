@@ -1,0 +1,60 @@
+version: 1
+project:
+  root: .
+  stacks: []
+  package_managers:
+    - uv
+    - cargo
+  monorepo: false
+  signals:
+    - constitution-declares-pyside6
+    - constitution-declares-rust-pyo3-maturin
+    - no-manifest-detected
+    - no-test-runner-detected
+    - python-package-manager-uv
+sdd:
+  artifact_store: 02-DOCS/wiki/sdd
+  execution_mode: interactive
+  registry_path: .rsc/skill-registry.json
+  review_budget:
+    line_budget: 400
+    file_budget: 12
+  delivery_strategy:
+    default: ask-on-risk
+testing:
+  strict_tdd: false
+  runners: []
+  commands:
+    apply: []
+    verify: []
+phase_rules:
+  proposal: optional-on-ambiguity
+  specify: requires intent or proposal
+  plan: requires spec
+  tasks: requires plan and spec
+  analyze: requires spec plan tasks
+  implement: requires analyze pass, strict_tdd when testing.strict_tdd is true
+  verify: requires spec tasks evidence
+  archive: requires verify record and review/ship outcome
+models:
+  enabled: false              # opt-in master switch; false = honor session model, announce nothing
+  provider: anthropic         # which provider the tiers below resolve to
+  tiers:
+    heavy: claude-opus-4-8
+    balanced: claude-sonnet-4-6
+    light: claude-haiku-4-5-20251001
+  phases:
+    constitution: heavy
+    specify: balanced
+    clarify: balanced
+    plan: heavy
+    tasks: balanced
+    analyze: heavy
+    implement: balanced
+    verify: balanced
+    review: heavy
+    ship: light
+    debug: heavy
+    worktrees: light
+    sdd-init: light
+  overrides: {}               # per-phase tier overrides set by the user

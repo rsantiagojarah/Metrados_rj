@@ -1,0 +1,243 @@
+{
+  "skills": {
+    "analyze": {
+      "files": [
+        "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.cursor\\rules\\analyze.mdc"
+      ],
+      "base": "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.rsc\\skills\\analyze"
+    },
+    "automation-strategy": {
+      "files": [
+        "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.cursor\\rules\\automation-strategy.mdc"
+      ],
+      "base": "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.rsc\\skills\\automation-strategy"
+    },
+    "bro": {
+      "files": [
+        "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.cursor\\rules\\bro.mdc"
+      ],
+      "base": "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.rsc\\skills\\bro"
+    },
+    "clarify": {
+      "files": [
+        "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.cursor\\rules\\clarify.mdc"
+      ],
+      "base": "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.rsc\\skills\\clarify"
+    },
+    "constitution": {
+      "files": [
+        "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.cursor\\rules\\constitution.mdc"
+      ],
+      "base": "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.rsc\\skills\\constitution"
+    },
+    "debug": {
+      "files": [
+        "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.cursor\\rules\\debug.mdc"
+      ],
+      "base": "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.rsc\\skills\\debug"
+    },
+    "decision-challenge": {
+      "files": [
+        "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.cursor\\rules\\decision-challenge.mdc"
+      ],
+      "base": "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.rsc\\skills\\decision-challenge"
+    },
+    "deprecation": {
+      "files": [
+        "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.cursor\\rules\\deprecation.mdc"
+      ],
+      "base": "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.rsc\\skills\\deprecation"
+    },
+    "eli5": {
+      "files": [
+        "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.cursor\\rules\\eli5.mdc"
+      ],
+      "base": "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.rsc\\skills\\eli5"
+    },
+    "fable-operator": {
+      "files": [
+        "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.cursor\\rules\\fable-operator.mdc"
+      ],
+      "base": "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.rsc\\skills\\fable-operator"
+    },
+    "ftd": {
+      "files": [
+        "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.cursor\\rules\\ftd.mdc"
+      ],
+      "base": "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.rsc\\skills\\ftd"
+    },
+    "harness": {
+      "files": [
+        "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.cursor\\rules\\harness.mdc"
+      ],
+      "base": "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.rsc\\skills\\harness"
+    },
+    "idea-refinement": {
+      "files": [
+        "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.cursor\\rules\\idea-refinement.mdc"
+      ],
+      "base": "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.rsc\\skills\\idea-refinement"
+    },
+    "implement": {
+      "files": [
+        "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.cursor\\rules\\implement.mdc"
+      ],
+      "base": "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.rsc\\skills\\implement"
+    },
+    "init": {
+      "files": [
+        "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.cursor\\rules\\init.mdc"
+      ],
+      "base": "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.rsc\\skills\\init"
+    },
+    "orient": {
+      "files": [
+        "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.cursor\\rules\\orient.mdc"
+      ],
+      "base": "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.rsc\\skills\\orient"
+    },
+    "parallel": {
+      "files": [
+        "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.cursor\\rules\\parallel.mdc"
+      ],
+      "base": "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.rsc\\skills\\parallel"
+    },
+    "plan": {
+      "files": [
+        "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.cursor\\rules\\plan.mdc"
+      ],
+      "base": "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.rsc\\skills\\plan"
+    },
+    "review": {
+      "files": [
+        "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.cursor\\rules\\review.mdc"
+      ],
+      "base": "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.rsc\\skills\\review"
+    },
+    "sdd": {
+      "files": [
+        "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.cursor\\rules\\sdd.mdc"
+      ],
+      "base": "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.rsc\\skills\\sdd"
+    },
+    "sdd-init": {
+      "files": [
+        "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.cursor\\rules\\sdd-init.mdc"
+      ],
+      "base": "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.rsc\\skills\\sdd-init"
+    },
+    "ship": {
+      "files": [
+        "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.cursor\\rules\\ship.mdc"
+      ],
+      "base": "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.rsc\\skills\\ship"
+    },
+    "show-me": {
+      "files": [
+        "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.cursor\\rules\\show-me.mdc"
+      ],
+      "base": "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.rsc\\skills\\show-me"
+    },
+    "simplify-code": {
+      "files": [
+        "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.cursor\\rules\\simplify-code.mdc"
+      ],
+      "base": "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.rsc\\skills\\simplify-code"
+    },
+    "source-grounded-development": {
+      "files": [
+        "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.cursor\\rules\\source-grounded-development.mdc"
+      ],
+      "base": "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.rsc\\skills\\source-grounded-development"
+    },
+    "specify": {
+      "files": [
+        "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.cursor\\rules\\specify.mdc"
+      ],
+      "base": "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.rsc\\skills\\specify"
+    },
+    "suggest": {
+      "files": [
+        "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.cursor\\rules\\suggest.mdc"
+      ],
+      "base": "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.rsc\\skills\\suggest"
+    },
+    "tasks": {
+      "files": [
+        "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.cursor\\rules\\tasks.mdc"
+      ],
+      "base": "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.rsc\\skills\\tasks"
+    },
+    "ui-engineering": {
+      "files": [
+        "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.cursor\\rules\\ui-engineering.mdc"
+      ],
+      "base": "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.rsc\\skills\\ui-engineering"
+    },
+    "unslop": {
+      "files": [
+        "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.cursor\\rules\\unslop.mdc"
+      ],
+      "base": "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.rsc\\skills\\unslop"
+    },
+    "verify": {
+      "files": [
+        "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.cursor\\rules\\verify.mdc"
+      ],
+      "base": "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.rsc\\skills\\verify"
+    },
+    "worktrees": {
+      "files": [
+        "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.cursor\\rules\\worktrees.mdc"
+      ],
+      "base": "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.rsc\\skills\\worktrees"
+    }
+  },
+  "agents": [
+    "developer",
+    "refuter-correctness",
+    "refuter-security",
+    "refuter-tests"
+  ],
+  "agentCollisions": [],
+  "explicitAgents": [],
+  "memory": {
+    "mode": "assisted",
+    "reason": "start-hook-fire-and-forget",
+    "paths": [
+      "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.rsc\\session-memory-core.mjs",
+      "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.rsc\\session-memory-adapter.mjs",
+      "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.rsc\\session-memory.mjs",
+      "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.cursor\\hooks.json",
+      "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj\\.cursor\\rules\\rsc-memory.mdc"
+    ]
+  },
+  "policy": {
+    "baseAgents": true,
+    "alwaysOn": true,
+    "codeHooks": true,
+    "gitmojiGuard": false,
+    "memory": true,
+    "context7": false
+  },
+  "commands": [
+    "analyze",
+    "checkpoint",
+    "clarify",
+    "debug",
+    "harness-audit",
+    "implement",
+    "learn",
+    "plan",
+    "refactor-clean",
+    "resume-session",
+    "review",
+    "save-session",
+    "ship",
+    "specify",
+    "tasks",
+    "verify"
+  ],
+  "commandCollisions": [],
+  "version": "2.0.15"
+}

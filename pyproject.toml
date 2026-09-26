@@ -1,0 +1,18 @@
+[build-system]
+requires = ["maturin>=1.7,<2"]
+build-backend = "maturin"
+
+[project]
+name = "metrado"
+version = "0.1.0"
+description = "Plantilla de escritorio para metrados de obra"
+requires-python = ">=3.11"
+dependencies = ["PySide6>=6.6"]
+
+[project.scripts]
+metrado = "metrado.__main__:main"
+
+[tool.maturin]
+manifest-path = "enlace/Cargo.toml"
+module-name = "metrado._enlace"
+python-source = "app"

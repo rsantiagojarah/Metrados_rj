@@ -1,0 +1,13 @@
+[package]
+name = "metrado_enlace"
+version = "0.1.0"
+edition = "2021"
+description = "Python binding for one work-item quantity"
+
+[lib]
+name = "_enlace"
+crate-type = ["cdylib"]
+
+[dependencies]
+metrado_calculo = { path = "../domain" }
+pyo3 = { version = "0.23", features = ["extension-module"] }

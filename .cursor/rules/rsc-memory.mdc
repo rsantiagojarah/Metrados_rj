@@ -1,0 +1,6 @@
+---
+description: Read rsc local continuation before the first action in a new desktop session.
+alwaysApply: true
+---
+<!-- rsc-memory:managed -->
+On the first turn of a local desktop session, run `node .rsc/session-memory.mjs resume` and read its `context` field before acting. Skip this rule for background or cloud agents.

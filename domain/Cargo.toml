@@ -1,0 +1,7 @@
+[package]
+name = "metrado_calculo"
+version = "0.1.0"
+edition = "2021"
+description = "Domain for one work-item quantity"
+
+[dependencies]

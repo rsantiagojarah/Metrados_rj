@@ -1,0 +1,40 @@
+{
+  "hooks": {
+    "sessionStart": [
+      {
+        "command": "node \".rsc/session-memory-adapter.mjs\" cursor start"
+      }
+    ],
+    "beforeSubmitPrompt": [
+      {
+        "command": "node \".rsc/session-memory-adapter.mjs\" cursor request"
+      }
+    ],
+    "afterFileEdit": [
+      {
+        "command": "node \".rsc/session-memory-adapter.mjs\" cursor edit"
+      }
+    ],
+    "afterShellExecution": [
+      {
+        "command": "node \".rsc/session-memory-adapter.mjs\" cursor boundary"
+      }
+    ],
+    "afterAgentResponse": [
+      {
+        "command": "node \".rsc/session-memory-adapter.mjs\" cursor turn"
+      }
+    ],
+    "preCompact": [
+      {
+        "command": "node \".rsc/session-memory-adapter.mjs\" cursor compact"
+      }
+    ],
+    "sessionEnd": [
+      {
+        "command": "node \".rsc/session-memory-adapter.mjs\" cursor end"
+      }
+    ]
+  },
+  "version": 1
+}

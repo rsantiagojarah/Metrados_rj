@@ -1,0 +1,96 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$(git rev-parse --show-toplevel)/.rsc/session-memory-adapter.mjs\" codex start",
+            "timeout": 5,
+            "commandWindows": "node \"$((git rev-parse --show-toplevel).Trim())/.rsc/session-memory-adapter.mjs\" codex start",
+            "additionalContextLimit": 1400
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$(git rev-parse --show-toplevel)/.rsc/session-memory-adapter.mjs\" codex request",
+            "timeout": 5,
+            "commandWindows": "node \"$((git rev-parse --show-toplevel).Trim())/.rsc/session-memory-adapter.mjs\" codex request",
+            "additionalContextLimit": 1400
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "apply_patch|Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$(git rev-parse --show-toplevel)/.rsc/session-memory-adapter.mjs\" codex edit",
+            "timeout": 5,
+            "commandWindows": "node \"$((git rev-parse --show-toplevel).Trim())/.rsc/session-memory-adapter.mjs\" codex edit",
+            "additionalContextLimit": 1400
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$(git rev-parse --show-toplevel)/.rsc/session-memory-adapter.mjs\" codex boundary",
+            "timeout": 5,
+            "commandWindows": "node \"$((git rev-parse --show-toplevel).Trim())/.rsc/session-memory-adapter.mjs\" codex boundary",
+            "additionalContextLimit": 1400
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$(git rev-parse --show-toplevel)/.rsc/session-memory-adapter.mjs\" codex turn",
+            "timeout": 5,
+            "commandWindows": "node \"$((git rev-parse --show-toplevel).Trim())/.rsc/session-memory-adapter.mjs\" codex turn",
+            "additionalContextLimit": 1400
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$(git rev-parse --show-toplevel)/.rsc/session-memory-adapter.mjs\" codex compact",
+            "timeout": 5,
+            "commandWindows": "node \"$((git rev-parse --show-toplevel).Trim())/.rsc/session-memory-adapter.mjs\" codex compact",
+            "additionalContextLimit": 1400
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$(git rev-parse --show-toplevel)/.rsc/session-memory-adapter.mjs\" codex end",
+            "timeout": 3,
+            "commandWindows": "node \"$((git rev-parse --show-toplevel).Trim())/.rsc/session-memory-adapter.mjs\" codex end",
+            "additionalContextLimit": 1400
+          }
+        ]
+      }
+    ]
+  }
+}

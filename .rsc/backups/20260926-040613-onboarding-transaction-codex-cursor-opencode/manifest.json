@@ -1,0 +1,966 @@
+{
+  "schemaVersion": 1,
+  "id": "20260926-040613-onboarding-transaction-codex-cursor-opencode",
+  "createdAt": "2026-09-26T04:06:13.191Z",
+  "operation": "onboarding-transaction",
+  "target": "codex-cursor-opencode",
+  "cwd": "C:\\Users\\rsant\\Desktop\\ProyectosPy\\Metrados_rj",
+  "cliVersion": "onboarding",
+  "entries": [
+    {
+      "path": ".codex/agents/developer.toml",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".codex/agents/refuter-correctness.toml",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".codex/agents/refuter-security.toml",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".codex/agents/refuter-tests.toml",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".codex/hooks.json",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".codex/rsc/.rsc-state.json",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".codex/rsc/analyze",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".codex/rsc/automation-strategy",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".codex/rsc/bro",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".codex/rsc/clarify",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".codex/rsc/constitution",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".codex/rsc/debug",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".codex/rsc/decision-challenge",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".codex/rsc/deprecation",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".codex/rsc/eli5",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".codex/rsc/fable-operator",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".codex/rsc/ftd",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".codex/rsc/harness",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".codex/rsc/idea-refinement",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".codex/rsc/implement",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".codex/rsc/init",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".codex/rsc/orient",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".codex/rsc/parallel",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".codex/rsc/plan",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".codex/rsc/review",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".codex/rsc/sdd",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".codex/rsc/sdd-init",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".codex/rsc/ship",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".codex/rsc/show-me",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".codex/rsc/simplify-code",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".codex/rsc/source-grounded-development",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".codex/rsc/specify",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".codex/rsc/suggest",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".codex/rsc/tasks",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".codex/rsc/ui-engineering",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".codex/rsc/unslop",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".codex/rsc/verify",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".codex/rsc/worktrees",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".cursor/agents/developer.md",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".cursor/agents/refuter-correctness.md",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".cursor/agents/refuter-security.md",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".cursor/agents/refuter-tests.md",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".cursor/commands/analyze.md",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".cursor/commands/checkpoint.md",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".cursor/commands/clarify.md",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".cursor/commands/debug.md",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".cursor/commands/harness-audit.md",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".cursor/commands/implement.md",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".cursor/commands/learn.md",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".cursor/commands/plan.md",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".cursor/commands/refactor-clean.md",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".cursor/commands/resume-session.md",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".cursor/commands/review.md",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".cursor/commands/save-session.md",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".cursor/commands/ship.md",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".cursor/commands/specify.md",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".cursor/commands/tasks.md",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".cursor/commands/verify.md",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".cursor/hooks.json",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".cursor/rules/.rsc-state.json",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".cursor/rules/analyze.mdc",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".cursor/rules/automation-strategy.mdc",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".cursor/rules/bro.mdc",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".cursor/rules/clarify.mdc",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".cursor/rules/constitution.mdc",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".cursor/rules/debug.mdc",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".cursor/rules/decision-challenge.mdc",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".cursor/rules/deprecation.mdc",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".cursor/rules/eli5.mdc",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".cursor/rules/fable-operator.mdc",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".cursor/rules/ftd.mdc",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".cursor/rules/harness.mdc",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".cursor/rules/idea-refinement.mdc",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".cursor/rules/implement.mdc",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".cursor/rules/init.mdc",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".cursor/rules/orient.mdc",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".cursor/rules/parallel.mdc",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".cursor/rules/plan.mdc",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".cursor/rules/review.mdc",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".cursor/rules/rsc-memory.mdc",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".cursor/rules/rsc-suggest.mdc",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".cursor/rules/sdd-init.mdc",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".cursor/rules/sdd.mdc",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".cursor/rules/ship.mdc",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".cursor/rules/show-me.mdc",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".cursor/rules/simplify-code.mdc",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".cursor/rules/source-grounded-development.mdc",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".cursor/rules/specify.mdc",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".cursor/rules/suggest.mdc",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".cursor/rules/tasks.mdc",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".cursor/rules/ui-engineering.mdc",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".cursor/rules/unslop.mdc",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".cursor/rules/verify.mdc",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".cursor/rules/worktrees.mdc",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".opencode/agents/developer.md",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".opencode/agents/refuter-correctness.md",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".opencode/agents/refuter-security.md",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".opencode/agents/refuter-tests.md",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".opencode/commands/analyze.md",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".opencode/commands/checkpoint.md",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".opencode/commands/clarify.md",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".opencode/commands/debug.md",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".opencode/commands/harness-audit.md",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".opencode/commands/implement.md",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".opencode/commands/learn.md",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".opencode/commands/plan.md",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".opencode/commands/refactor-clean.md",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".opencode/commands/resume-session.md",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".opencode/commands/review.md",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".opencode/commands/save-session.md",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".opencode/commands/ship.md",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".opencode/commands/specify.md",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".opencode/commands/tasks.md",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".opencode/commands/verify.md",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".opencode/plugins/rsc-memory.js",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".opencode/rsc/.rsc-state.json",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".opencode/rsc/analyze",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".opencode/rsc/automation-strategy",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".opencode/rsc/bro",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".opencode/rsc/clarify",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".opencode/rsc/constitution",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".opencode/rsc/debug",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".opencode/rsc/decision-challenge",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".opencode/rsc/deprecation",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".opencode/rsc/eli5",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".opencode/rsc/fable-operator",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".opencode/rsc/ftd",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".opencode/rsc/harness",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".opencode/rsc/idea-refinement",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".opencode/rsc/implement",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".opencode/rsc/init",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".opencode/rsc/orient",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".opencode/rsc/parallel",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".opencode/rsc/plan",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".opencode/rsc/review",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".opencode/rsc/sdd",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".opencode/rsc/sdd-init",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".opencode/rsc/ship",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".opencode/rsc/show-me",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".opencode/rsc/simplify-code",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".opencode/rsc/source-grounded-development",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".opencode/rsc/specify",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".opencode/rsc/suggest",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".opencode/rsc/tasks",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".opencode/rsc/ui-engineering",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".opencode/rsc/unslop",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".opencode/rsc/verify",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".opencode/rsc/worktrees",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc.json",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/.base-versions.json",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/.no-context7",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/.version",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/session-memory-adapter.mjs",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/session-memory-core.mjs",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/session-memory.mjs",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/analyze",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/automation-strategy",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/bro",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/clarify",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/constitution",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/debug",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/decision-challenge",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/deprecation",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/eli5",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/fable-operator",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/ftd",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/harness",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/idea-refinement",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/implement",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/init",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/orient",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/parallel",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/plan",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/review",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/sdd",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/sdd-init",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/ship",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/show-me",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/simplify-code",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/source-grounded-development",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/specify",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/suggest",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/tasks",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/ui-engineering",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/unslop",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/verify",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/worktrees",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": "02-DOCS/wiki/harness/decisions.md",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": "02-DOCS/wiki/harness/installation-plan.md",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": "02-DOCS/wiki/harness/user-profile.md",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": "AGENTS.md",
+      "existed": false,
+      "kind": "missing"
+    }
+  ]
+}
