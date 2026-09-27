@@ -87,6 +87,63 @@ class NavigationTests(unittest.TestCase):
         self.assertFalse(self.outline.flags(self.outline.for_row(2, 3)) & Qt.ItemIsEditable)
         self.assertFalse(self.outline.flags(self.outline.for_row(1, 2)) & Qt.ItemIsEditable)
 
+    def test_item_codes_have_no_indentation_at_any_level(self):
+        rows = [new_row('chapter', '01', 'Título', level=0),
+                new_row('chapter', '01.01', 'Subtítulo', level=1),
+                new_row('chapter', '01.01.01', 'Grupo', level=2),
+                new_row('item', '01.01.01.01', 'Partida', 'm3', level=3)]
+        self.window._load('Códigos alineados', rows)
+        APP.processEvents()
+        before = deepcopy(self.model.rows)
+        self.assertEqual(self.tree.treePosition(), 1)
+        self.assertEqual(self.tree.columnWidth(0), 94)
+        code_rects = [self.tree.visualRect(self.outline.for_row(r, 0)) for r in range(4)]
+        self.assertEqual(len({rect.left() for rect in code_rects}), 1)
+        self.assertTrue(all(rect.width() == 94 for rect in code_rects))
+        descriptions = [self.tree.visualRect(self.outline.for_row(r, 1)).left() for r in range(4)]
+        self.assertEqual([x - descriptions[0] for x in descriptions], [0, 0, 0, 0])
+        self.assertEqual(self.tree.indentation(), 0)
+        self.assertEqual(self.model.rows, before)
+        self.assertEqual(self.model.undo_stack.count(), 0)
+
+    def test_expand_controls_in_description_keep_codes_and_widths_unchanged(self):
+        before = deepcopy(self.model.rows)
+        widths = [self.tree.columnWidth(c) for c in range(4)]
+        parent = self.outline.for_row(1)
+        self.assertTrue(self.tree.isExpanded(parent))
+        arrow = self.tree.disclosure_rect(self.outline.for_row(1, 1)).center()
+        QTest.mouseClick(self.tree.viewport(), Qt.LeftButton, pos=arrow)
+        APP.processEvents()
+        self.assertFalse(self.tree.isExpanded(parent))
+        QTest.mouseClick(self.tree.viewport(), Qt.LeftButton, pos=arrow)
+        APP.processEvents()
+        self.assertTrue(self.tree.isExpanded(parent))
+        code = self.tree.visualRect(self.outline.for_row(1, 0)).center()
+        QTest.mouseClick(self.tree.viewport(), Qt.LeftButton, pos=code)
+        self.assertTrue(self.tree.isExpanded(parent))
+        self.assertEqual([self.tree.columnWidth(c) for c in range(4)], widths)
+        self.assertEqual(self.model.rows, before)
+        self.assertEqual(self.model.undo_stack.count(), 0)
+
+    def test_flat_titles_expand_with_keyboard_and_leaves_have_no_arrow(self):
+        self.navigate(1, 0)
+        index = self.outline.for_row(1)
+        self.assertTrue(self.tree.disclosure_rect(self.outline.for_row(2, 1)).isEmpty())
+        self.assertTrue(self.tree.disclosure_rect(self.outline.for_row(1, 0)).isEmpty())
+        QTest.keyClick(self.tree, Qt.Key_Left)
+        self.assertFalse(self.tree.isExpanded(index))
+        QTest.keyClick(self.tree, Qt.Key_Right)
+        self.assertTrue(self.tree.isExpanded(index))
+        self.assertEqual(self.model.undo_stack.count(), 0)
+
+    def test_flat_title_double_click_on_arrow_does_not_start_editor(self):
+        self.navigate(1)
+        point = self.tree.disclosure_rect(self.outline.for_row(1, 1)).center()
+        QTest.mouseDClick(self.tree.viewport(), Qt.LeftButton, pos=point)
+        APP.processEvents()
+        self.assertNotIsInstance(QApplication.focusWidget(), QLineEdit)
+        self.assertEqual(self.model.undo_stack.count(), 0)
+
     def test_tables_start_at_same_height_after_resize_and_selection(self):
         workspace = self.window.workspace
         before = deepcopy(self.model.rows)

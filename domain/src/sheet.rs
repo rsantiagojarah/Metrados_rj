@@ -14,7 +14,7 @@ pub fn sheet_quantity(
         "m" => Some(Unit::LinearMeter),
         "m2" => Some(Unit::SquareMeter),
         "m3" => Some(Unit::CubicMeter),
-        "kg" | "und" | "mes" | "vje" | "glb" => None,
+        "kg" | "und" | "mes" | "vje" | "glb" | "dia" => None,
         _ => return Err(DomainError::UnknownUnit),
     };
     let base = if let Some(value) = direct {
@@ -103,7 +103,7 @@ mod tests {
             Ok(837.13)
         );
         assert_eq!(sheet_quantity("kg", vec![], 2.0, 3.0, Some(4.0)), Ok(24.0));
-        for unit in ["und", "mes", "vje", "glb"] {
+        for unit in ["und", "mes", "vje", "glb", "dia"] {
             assert_eq!(sheet_quantity(unit, vec![], 1.0, 6.0, None), Ok(6.0));
         }
     }

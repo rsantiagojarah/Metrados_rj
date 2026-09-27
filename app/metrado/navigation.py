@@ -1,11 +1,11 @@
 """A live outline and an item-scoped view of the same sheet, without data copies."""
 from bisect import bisect_left, bisect_right
 
-from PySide6.QtCore import QAbstractItemModel, QEvent, QItemSelectionModel, QModelIndex, Qt, Signal
-from PySide6.QtGui import QPainter
+from PySide6.QtCore import QAbstractItemModel, QEvent, QItemSelectionModel, QModelIndex, QPoint, QRect, Qt, Signal
+from PySide6.QtGui import QPainter, QPolygon
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QHeaderView, QLabel, QSizePolicy, QSplitter,
-    QStyledItemDelegate, QTreeView, QVBoxLayout, QWidget,
+    QStyle, QStyleOptionViewItem, QStyledItemDelegate, QTreeView, QVBoxLayout, QWidget,
 )
 
 from metrado.grid import SheetView
@@ -89,6 +89,36 @@ class PartidaModel(QAbstractItemModel):
 
 
 class PartidaDelegate(QStyledItemDelegate):
+    def _text_option(self, option, index):
+        body = QStyleOptionViewItem(option)
+        if not self.parent().disclosure_rect(index).isEmpty():
+            body.rect.adjust(0, 0, -18, 0)
+        return body
+
+    def paint(self, painter, option, index):
+        tree = self.parent()
+        rect = tree.disclosure_rect(index)
+        if rect.isEmpty():
+            super().paint(painter, option, index)
+            return
+        body = QStyleOptionViewItem(option)
+        self.initStyleOption(body, index)
+        # Paint the full background, reserving only text space for the arrow.
+        body.text = body.fontMetrics.elidedText(body.text, Qt.ElideRight, max(0, body.rect.width() - 22))
+        tree.style().drawControl(QStyle.CE_ItemViewItem, body, painter, tree)
+        x, y = rect.center().x(), rect.center().y()
+        points = ([QPoint(x - 4, y - 2), QPoint(x + 4, y - 2), QPoint(x, y + 3)]
+                  if tree.isExpanded(index.siblingAtColumn(0)) else
+                  [QPoint(x - 2, y - 4), QPoint(x - 2, y + 4), QPoint(x + 3, y)])
+        painter.save()
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(body.palette.highlightedText() if body.state & QStyle.State_Selected else body.palette.text())
+        painter.drawPolygon(QPolygon(points))
+        painter.restore()
+
+    def updateEditorGeometry(self, editor, option, index):
+        super().updateEditorGeometry(editor, self._text_option(option, index), index)
+
     def createEditor(self, parent, option, index):
         if index.column() == 2:
             editor = QComboBox(parent)
@@ -115,6 +145,16 @@ class PartidaTree(QTreeView):
     beforeNavigate = Signal()
     commit_editor = SheetView.commit_editor
 
+    def disclosure_rect(self, index):
+        if not index.isValid() or index.column() != 1 or not self.model().hasChildren(index.siblingAtColumn(0)):
+            return QRect()
+        cell = self.visualRect(index)
+        return QRect(cell.right() - 15, cell.center().y() - 6, 12, 12)
+
+    def _on_disclosure(self, event):
+        index = self.indexAt(event.position().toPoint())
+        return index if self.disclosure_rect(index).contains(event.position().toPoint()) else QModelIndex()
+
     def setCurrentIndex(self, index):
         # Programmatic navigation is a single selection even if a shortcut is
         # still holding Ctrl/Shift. Mouse multi-selection remains Qt's default.
@@ -127,7 +167,19 @@ class PartidaTree(QTreeView):
 
     def mousePressEvent(self, event):
         self.beforeNavigate.emit()
+        index = self._on_disclosure(event)
+        if event.button() == Qt.LeftButton and index.isValid():
+            parent = index.siblingAtColumn(0)
+            self.setExpanded(parent, not self.isExpanded(parent))
+            event.accept()
+            return
         super().mousePressEvent(event)
+
+    def mouseDoubleClickEvent(self, event):
+        if event.button() == Qt.LeftButton and self._on_disclosure(event).isValid():
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
 
     def event(self, event):
         if event.type() == QEvent.KeyPress and self.state() != QAbstractItemView.EditingState and self.currentIndex().column() in (0, 1):
@@ -183,7 +235,10 @@ class PartidaWorkspace(QWidget):
         self.navigator.setModel(self.outline)
         self.navigator.setItemDelegate(PartidaDelegate(self.navigator))
         self.navigator.setUniformRowHeights(True)
-        self.navigator.setIndentation(14)
+        # Keep both text columns flat; disclosure controls live at the right.
+        self.navigator.setTreePosition(1)
+        self.navigator.setIndentation(0)
+        self.navigator.setRootIsDecorated(False)
         self.navigator.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.navigator.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.navigator.setEditTriggers(QAbstractItemView.DoubleClicked | QAbstractItemView.EditKeyPressed)

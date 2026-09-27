@@ -10,9 +10,9 @@ from metrado import references as refs
 from metrado.steel_config import dimensions as steel_dimensions, validate_row as validate_steel, sync_dimensions
 from metrado.swelling import adjusted_volume, validate_swelling, volume_blocks, upgrade_legacy
 
-UNITS = ("m", "m2", "m3", "kg", "und", "mes", "vje", "glb")
+UNITS = ("m", "m2", "m3", "kg", "und", "mes", "vje", "glb", "dia")
 RESULT_COLUMN = {"m": 8, "m2": 9, "m3": 10, "kg": 12,
-                 "und": 12, "mes": 12, "vje": 12, "glb": 12}
+                 "und": 12, "mes": 12, "vje": 12, "glb": 12, "dia": 12}
 DIMENSIONS = {"m": ((4, "longitud"),),
               "m2": ((4, "largo"), (5, "ancho")),
               "m3": ((4, "largo"), (5, "ancho"), (6, "alto")),

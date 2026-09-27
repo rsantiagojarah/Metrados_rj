@@ -12,6 +12,8 @@ La interfaz adapta la presentación de Gitbin: cabecera compacta con el nombre e
 
 El panel izquierdo muestra un árbol de **títulos, subtítulos y partidas**, con **ÍTEM, descripción, unidad y total actualizado**. Puedes contraer títulos con su flecha y editar descripciones o unidades con doble clic o F2. Los títulos no suman cantidades de unidades diferentes.
 
+Los códigos de **ÍTEM** y las descripciones de **PARTIDAS** quedan alineados a la izquierda, sin sangría en ningún nivel. Las flechas para expandir o contraer títulos están al extremo derecho de su descripción y no desplazan el texto. Se conservan la jerarquía y los anchos de las columnas.
+
 Al seleccionar una partida, el panel derecho muestra **solo su desagregado**, incluidos títulos internos, acero y líneas FE, sin repetir la partida como una fila de la tabla. La numeración visual empieza en **1 para cada partida** y cuenta también los títulos internos; no cambia los códigos ÍTEM. La cabecera reúne código, descripción, unidad y total en **una sola línea**. Si la descripción es larga se acorta visualmente, manteniendo el total visible; el texto completo aparece al pasar el puntero. Seleccionar un título deja la planilla vacía hasta elegir una partida; desde el título puedes crear subtítulos o partidas con los botones habituales. Las partidas vacías conservan su cabecera y permiten agregar el primer detalle.
 
 Arrastra el **separador vertical** para repartir el espacio entre paneles. La vista compacta reserva menos espacio a las partidas y ajusta la descripción del metrado al ancho disponible al redimensionar la ventana o mover el separador. Las columnas mantienen sus anchos al cambiar de partida, incluido acero, y al deshacer. Si estrechas demasiado el panel o amplías columnas manualmente, se mantiene el desplazamiento horizontal para no hacer ilegibles los datos. El divisor y los grupos contraídos se conservan durante las operaciones de la sesión, no se guardan como datos de la obra.
@@ -76,7 +78,7 @@ Mientras editas texto con doble clic o F2, `Ctrl+C / Ctrl+V` conserva su comport
 | m2 | Largo y ancho | Área |
 | m3 | Largo, ancho y alto | Vol. |
 | kg | Largo, gancho, empalme, Ø y n° de barras (solo esa partida) | Long., kg/m y Kg |
-| und, mes, vje, glb | Factores; cantidad base opcional | Und. |
+| und, mes, vje, glb, dia | Factores; cantidad base opcional | Und. |
 
 Todos los resultados se multiplican por elementos similares y número de veces. Los factores comienzan en 1. Se aceptan coma o punto decimal, sin separadores de miles. Los datos deben ser positivos y finitos; un detalle incompleto deja el total de su partida como **Pendiente**. Una partida sin detalles tiene total 0,00.
 
@@ -208,6 +210,19 @@ Cambiar de panel o abrir un buscador confirma la celda en edición antes de sali
 Esta versión incluye edición y guardado local. No incluye exportación a Excel/PDF ni instalador para otros equipos.
 
 ## Desarrollo
+
+### Importar partidas desde Excel
+
+En **Archivo → Importar partidas desde Excel…**, selecciona un archivo **.xlsx**, revisa su hoja en la vista previa y confirma **Importar como nueva planilla**. También puedes localizar la acción escribiendo «Excel» en el buscador de comandos **Ctrl+K**. No se añade ningún botón a la barra.
+
+- Reconoce encabezados **Ítem / Descripción / Unidad** (también Código, Partida o Und.), aunque estén en otro orden o después de un encabezado del presupuesto, dentro de las primeras 100 filas y 128 columnas. Permite elegir entre las hojas que tengan estos encabezados.
+- Conserva los códigos, ceros iniciales y nombres. Los códigos separados por puntos definen la jerarquía: `01` → `01.01` → `01.01.01`. Guarda los códigos de varios niveles como **texto en Excel**, no como números decimales. Los títulos padres deben preceder a sus hijos, agrupados consecutivamente.
+- Una fila sin unidad se importa como título o subtítulo; con unidad, como partida. No importa metrados, precios, importes ni detalles. Las partidas quedan listas para desarrollar sus metrados y inicialmente suman 0.
+- Reconoce las unidades existentes y **dia** (día), incluyendo mayúsculas y variantes como m², m³, UND. y DÍA. La unidad día se calcula con Elem. simil. × N.º de veces, o con una cantidad directa; admite referencias y factores negativos.
+- Rechaza códigos duplicados, jerarquías inválidas, unidades desconocidas y fórmulas/errores en las tres columnas importadas. Indica la hoja y fila del problema, sin cargar una importación parcial. Para columnas calculadas, pega previamente sus valores en una copia del Excel.
+- Admite hasta 10 000 filas importadas, 30 000 filas de origen, archivos de 20 MB y contenido descomprimido de 64 MB. Para **.xls**, guarda primero una copia **.xlsx**.
+
+La importación inicia una obra nueva, no agrega ni combina partidas con la obra abierta. Antes de sustituirla puedes guardar sus cambios pendientes; cancelar conserva la obra. El Excel original no se modifica y **Guardar** solicita un nuevo archivo SQLite. Como al abrir otra obra, no se conserva el historial anterior; las ediciones posteriores admiten Ctrl+Z. Al mover o reorganizar filas, se mantiene la renumeración automática habitual del programa.
 
 ### Referenciar totales de otras partidas
 

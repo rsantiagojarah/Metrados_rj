@@ -200,6 +200,8 @@ class PlantillaWindow(QMainWindow):
         add_flat_action(toolbar, self.undo_action, SPECS['Deshacer'])
         add_flat_action(toolbar, self.redo_action, SPECS['Rehacer'])
         file_menu = self.menuBar().addMenu('Archivo')
+        self.import_excel_action = file_menu.addAction('Importar partidas desde Excel…', self.import_excel)
+        self.import_excel_action.setToolTip('Crear una planilla desde ítems, descripciones y unidades de un Excel .xlsx.')
         self.export_action = file_menu.addAction('Exportar copia JSON…', self.export_json)
 
     def _selection_status(self, *args):
@@ -746,6 +748,36 @@ class PlantillaWindow(QMainWindow):
             # Imported data must be saved to a new SQLite file, never over JSON.
             self.model.undo_stack.resetClean()
             self.statusBar().showMessage('JSON importado. Guardar creará una base SQLite; el original se conserva.', 10000)
+
+    def import_excel(self):
+        filename, _ = QFileDialog.getOpenFileName(self, 'Importar partidas desde Excel', '', 'Excel (*.xlsx)')
+        if not filename:
+            return
+        # Parse and preview before asking to discard anything in the open work.
+        from metrado.excel_import import ExcelBudget
+        from metrado.excel_dialog import ExcelImportDialog
+        try:
+            with ExcelBudget(filename) as budget:
+                dialog = ExcelImportDialog(budget, self)
+                try:
+                    if dialog.exec() != QDialog.Accepted:
+                        return
+                    result = dialog.result
+                finally:
+                    dialog.deleteLater()
+        except (OSError, ValueError) as error:
+            QMessageBox.warning(self, 'No se pudo importar Excel', str(error))
+            return
+        if result is None or not self._can_discard():
+            return
+        self._load(Path(filename).stem, result.rows)
+        self.model.undo_stack.resetClean()
+        self._select(next(i for i, row in enumerate(result.rows) if row['kind'] == 'item'))
+        self.navigator.scrollToTop()
+        self.navigator.setFocus()
+        self.statusBar().showMessage(
+            f'Excel importado: {result.titles} títulos/subtítulos y {result.items} partidas. '
+            'Guardar creará una base SQLite nueva; el Excel se conserva.', 12000)
 
     def save_project(self, save_as=False):
         self._commit_editors()

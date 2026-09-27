@@ -2,7 +2,7 @@
 from collections import deque
 import math
 
-UNITS = ('m', 'm2', 'm3', 'kg', 'und', 'mes', 'vje', 'glb')
+UNITS = ('m', 'm2', 'm3', 'kg', 'und', 'mes', 'vje', 'glb', 'dia')
 FIELDS = ('source', 'label', 'source_unit', 'target_unit', 'factor_name', 'factor')
 
 
