@@ -928,7 +928,11 @@ class SheetView(QTableView):
         self.fit_columns()
 
     def _keep_footer_height(self, row, old_size, new_size):
-        if row in self.model().swelling_footers and new_size < ROW_HEIGHT + FOOTER_HEIGHT:
+        # Hiding a section emits sectionResized(..., 0). Resizing it again from
+        # inside that signal leaves phantom space in QHeaderView even though
+        # isRowHidden() remains true. Only enforce the minimum for visible rows.
+        if (0 < new_size < ROW_HEIGHT + FOOTER_HEIGHT and
+                not self.isRowHidden(row) and row in self.model().swelling_footers):
             self.setRowHeight(row, ROW_HEIGHT + FOOTER_HEIGHT)
 
     def sync_footers(self):

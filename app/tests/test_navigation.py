@@ -310,6 +310,52 @@ class NavigationTests(unittest.TestCase):
         self.assertEqual(self.table.rowHeight(5), 56)
         self.assertEqual(self.model.swelling_summary(4)[10], '57.60')
 
+    def test_hidden_fe_does_not_leave_gap_before_other_development(self):
+        self.navigate(2)
+        self.model.set_swelling([4, 5], dict(factor='1.2', note='Test'))
+        for owner, first in ((6, 7), (9, 10), (2, 3), (6, 7)):
+            self.navigate(owner)
+            self.assertEqual(self.table.rowViewportPosition(first), 0)
+            self.assertEqual(self.table.verticalHeader().length(),
+                             sum(self.table.rowHeight(r) for r in self.visible()))
+        self.navigate(2)
+        self.assertEqual(self.table.rowHeight(5), 56)
+        self.assertEqual(self.model.swelling_summary(4)[10], '57.60')
+
+    def test_first_detail_after_fe_has_no_gap_through_undo_redo(self):
+        self.window._load('Primera fila', split_rows() + [
+            new_row('item', description='VACÍA', unit='m3', level=0)])
+        self.navigate(2)
+        self.model.set_swelling([4, 5], dict(factor='1.2', note='Test'))
+        self.navigate(11)
+        self.assertEqual(self.visible(), [])
+        self.assertEqual(self.table.verticalHeader().length(), 0)
+        with patch.object(self.window.workspace, 'edit_description'):
+            self.window.add_row('detail')
+        for action in (None, self.model.undo_stack.undo, self.model.undo_stack.redo):
+            if action:
+                action()
+            APP.processEvents()
+            visible = self.visible()
+            self.assertEqual(self.table.verticalHeader().length(), len(visible) * 28)
+            if visible:
+                self.assertEqual(visible, [12])
+                self.assertEqual(self.table.rowViewportPosition(12), 0)
+                self.assertEqual(self.model.headerData(12, Qt.Vertical), '1')
+                self.assertEqual(self.table.rowHeight(12), 28)
+
+    def test_visible_fe_still_preserves_its_minimum_height(self):
+        self.navigate(2)
+        self.model.set_swelling([4, 5], dict(factor='1.2', note='Test'))
+        self.table.setRowHeight(5, 28)
+        self.assertEqual(self.table.rowHeight(5), 56)
+        self.navigate(6)
+        self.table.sync_footers()
+        APP.processEvents()
+        self.assertEqual(self.table.rowViewportPosition(7), 0)
+        self.navigate(2)
+        self.assertEqual(self.table.rowHeight(5), 56)
+
     def test_navigation_commits_active_detail_editor(self):
         editor = self.editor(self.table, 4, 4)
         editor.selectAll()

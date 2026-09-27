@@ -202,6 +202,8 @@ class PlantillaWindow(QMainWindow):
         file_menu = self.menuBar().addMenu('Archivo')
         self.import_excel_action = file_menu.addAction('Importar partidas desde Excel…', self.import_excel)
         self.import_excel_action.setToolTip('Crear una planilla desde ítems, descripciones y unidades de un Excel .xlsx.')
+        self.export_excel_action = file_menu.addAction('Exportar metrados a Excel…', self.export_excel)
+        self.export_excel_action.setToolTip('Desarrollo completo y resumen enlazado, editables con fórmulas e impresión A4.')
         self.export_action = file_menu.addAction('Exportar copia JSON…', self.export_json)
 
     def _selection_status(self, *args):
@@ -807,6 +809,37 @@ class PlantillaWindow(QMainWindow):
         self.model.undo_stack.setClean()
         self._refresh_title()
         self.statusBar().showMessage("Planilla guardada: " + str(path))
+        return True
+
+    def export_excel(self):
+        self._commit_editors()
+        self._commit_title()
+        suggested = self._path.with_suffix('.xlsx') if self._path else Path('Metrados.xlsx')
+        filename, _ = QFileDialog.getSaveFileName(self, 'Exportar desarrollo y resumen de metrados',
+                                                str(suggested), 'Excel (*.xlsx)')
+        if not filename:
+            return False
+        path = Path(filename)
+        if path.suffix.lower() != '.xlsx':
+            path = Path(str(path) + '.xlsx')
+            if path.exists() and QMessageBox.question(self, 'Reemplazar archivo',
+                    'El archivo ya existe. ¿Reemplazarlo?', QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.No) != QMessageBox.Yes:
+                return False
+        if self._path is not None and path.resolve() == self._path.resolve():
+            QMessageBox.warning(self, 'No se pudo exportar', 'Elige otro archivo para conservar la base SQLite.')
+            return False
+        from metrado.excel_export import export_workbook
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            count, pending = export_workbook(path, self.title_edit.text(), self.model.rows, self._enlace)
+        except (OSError, ValueError) as error:
+            QMessageBox.warning(self, 'No se pudo exportar Excel', str(error))
+            return False
+        finally:
+            QApplication.restoreOverrideCursor()
+        self.statusBar().showMessage(f'Excel exportado: {count} partidas · Desarrollo y Resumen · '
+                                    f'{pending} filas pendientes · {path}', 15000)
         return True
 
     def export_json(self):

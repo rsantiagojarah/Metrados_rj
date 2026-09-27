@@ -119,7 +119,7 @@ class KeyboardController(QObject):
         self.actions = {}
         self.commands = [
             *window.command_actions, *window.row_actions.values(), window.undo_action, window.redo_action,
-            window.export_action, window.import_excel_action, window.swelling_action, window.catalog_action,
+            window.export_action, window.import_excel_action, window.export_excel_action, window.swelling_action, window.catalog_action,
             window.hooks_action, window.update_steel_action,
         ]
         menu = window.menuBar().addMenu('Navegar')
