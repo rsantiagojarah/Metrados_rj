@@ -6,6 +6,7 @@ from pathlib import Path
 import tempfile
 
 from metrado.hierarchy import Outline
+from metrado import references as refs
 from metrado.steel_config import dimensions as steel_dimensions, validate_row as validate_steel, sync_dimensions
 from metrado.swelling import adjusted_volume, validate_swelling, volume_blocks, upgrade_legacy
 
@@ -100,6 +101,12 @@ def subtree_end(rows, index):
 
 def calculate(rows, engine):
     """Return values and errors; never store calculated cells in the document."""
+    if any('reference' in row for row in rows):
+        return refs.calculate_linked(rows, engine, _calculate_plain)
+    return _calculate_plain(rows, engine)
+
+
+def _calculate_plain(rows, engine, sources=None):
     values, errors = {}, {}
     current, quantities, invalid = None, [], False
 
@@ -135,7 +142,20 @@ def calculate(rows, engine):
         cells = row["cells"]
         try:
             number = lambda text: float(text.strip().replace(",", "."))
-            if row["direct"].strip():
+            if 'reference' in row:
+                ref = row['reference']
+                refs.validate_row(row)
+                source_unit, base = (sources or {}).get(ref['source'], (None, None))
+                if source_unit is None:
+                    raise ValueError('La partida referenciada ya no está disponible.')
+                if base is None:
+                    raise ValueError('La partida referenciada tiene detalles pendientes.')
+                values[(index, 4)] = base
+                factor = refs.conversion(ref, source_unit, unit)
+                if source_unit != unit:
+                    values[(index, 5)] = factor
+                quantity = refs.linked_quantity(base, factor, number(cells[3]), number(cells[7]), engine)
+            elif row["direct"].strip():
                 if unit == "kg":
                     values[(index, 7)] = number(cells[9])
                 quantity = engine.ask_sheet_quantity(
@@ -173,8 +193,9 @@ def calculate(rows, engine):
                     unit, dimensions, number(cells[3]), number(cells[7]), None)
             values[(index, RESULT_COLUMN[unit])] = quantity
             quantities.append(quantity)
-        except (ValueError, KeyError, OverflowError):
-            errors[index] = "Completa las medidas y factores con números positivos y finitos."
+        except (ValueError, KeyError, OverflowError) as error:
+            errors[index] = (str(error) if 'reference' in row else
+                             "Completa las medidas positivas. Elem. simil. y N.º de veces admiten signos, pero no cero.")
             invalid = True
     finish()
     # A block contributes its adjusted subtotal instead of its raw members.
@@ -232,7 +253,7 @@ def read_project(path):
 
 
 def validate_project(data):
-    if not isinstance(data, dict) or type(data.get('version')) is not int or data.get("version") not in (1, 2, 3, 4, 5, 6):
+    if not isinstance(data, dict) or type(data.get('version')) is not int or data.get("version") not in (1, 2, 3, 4, 5, 6, 7):
         raise ValueError("Formato de planilla no reconocido.")
     if not isinstance(data.get("title"), str) or not isinstance(data.get("rows"), list):
         raise ValueError("La planilla no contiene un título y filas válidos.")
@@ -255,7 +276,13 @@ def validate_project(data):
         validate_swelling(row)
         if ('steel_catalog' in row or 'steel_hooks' in row) and data['version'] < 6:
             raise ValueError('El catálogo de acero requiere formato JSON versión 6.')
+        if 'steel_catalog' in row:
+            from metrado.steel_snapshot import freeze
+            row['steel_catalog'] = freeze(row['steel_catalog'])
         validate_steel(row)
+        if 'reference' in row and data['version'] < 7:
+            raise ValueError('Las referencias requieren formato JSON versión 7.')
+        refs.validate_row(row)
         sync_dimensions(row)
         if data['version'] >= 2 and 'level' not in row:
             raise ValueError('Falta el nivel de una fila.')
@@ -279,6 +306,10 @@ def validate_project(data):
                 raise ValueError('Un título de detalle solo contiene descripción; no admite código ni cantidades.')
         clear_results(cells, current or cells[2])
     Outline(data['rows'], strict=True)
+    if any('reference' in row for row in data['rows']):
+        from metrado.identity import ensure_ids
+        ensure_ids(data['rows'])
+        refs.check_cycles(data['rows'])
     return data["title"], data["rows"]
 
 
@@ -294,12 +325,13 @@ def write_project(path, title, rows):
     """Atomic replacement keeps an existing project intact if writing fails."""
     from metrado.hierarchy import materialize
     groups = any(row['kind'] == 'detail_group' for row in rows)
+    references = any('reference' in row for row in rows)
     steel = any('steel_catalog' in row or 'steel_hooks' in row for row in rows)
     blocks = any('volume_factor' in row for row in rows)
     swelling = blocks or any('swelling' in row for row in rows)
-    hierarchical = steel or swelling or groups or any('level' in row for row in rows)
-    data = {"version": 6 if steel else 5 if blocks else 4 if swelling else 3 if groups else 2 if hierarchical else 1, "title": title,
-            "rows": materialize(rows) if hierarchical else deepcopy(rows)}
+    hierarchical = references or steel or swelling or groups or any('level' in row for row in rows)
+    data = {"version": 7 if references else 6 if steel else 5 if blocks else 4 if swelling else 3 if groups else 2 if hierarchical else 1, "title": title,
+            "rows": materialize(rows, immutable_catalogs=True) if hierarchical else deepcopy(rows)}
     validate_project(data)
     for row in data["rows"]:
         clear_results(row["cells"], row["cells"][2])

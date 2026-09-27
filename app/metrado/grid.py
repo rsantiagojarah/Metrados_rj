@@ -2,11 +2,11 @@
 from copy import deepcopy
 from uuid import uuid4
 
-from PySide6.QtCore import QAbstractTableModel, QEvent, QModelIndex, QRect, Qt, Signal
+from PySide6.QtCore import QAbstractTableModel, QEvent, QItemSelection, QItemSelectionModel, QModelIndex, QRect, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QKeySequence, QPainter, QPen, QUndoStack
 from PySide6.QtWidgets import QApplication, QAbstractItemDelegate, QComboBox, QHeaderView, QStyleOptionViewItem, QStyledItemDelegate, QTableView, QToolTip
 
-from metrado.sheet import DIMENSIONS, UNITS, calculate
+from metrado.sheet import DIMENSIONS, UNITS, calculate, _calculate_plain
 from metrado.steel import (
     DIAMETERS, STEEL_LABELS, description_base, edit_description, header_mode,
     set_bar_diameter, sync_description,
@@ -16,10 +16,21 @@ from metrado.hierarchy import Outline
 from metrado.identity import ensure_ids
 from metrado.history import RowEdit, RowStructure
 from metrado import steel_config as sc
+from metrado import references as refs
+from metrado.steel_snapshot import freeze_rows, editable_copy
 from metrado.swelling import adjusted_volume, factor_text, validate_swelling, volume_blocks, upgrade_legacy
 
 LABELS = ("ÍTEM", "DESCRIPCIÓN", "Und", "Elem.\nsimil.", "Largo", "Ancho", "Alto",
           "N.º de\nveces", "Lon.", "Área", "Vol.", "Kg.", "Und.", "Total")
+REFERENCE_LABELS = (*LABELS[:4], 'Valor ref.', '', '', *LABELS[7:])
+CONVERSION_LABELS = (*LABELS[:4], 'Valor ref.', 'Factor', '', *LABELS[7:])
+
+
+def labels_for_mode(mode):
+    return {'reference': REFERENCE_LABELS, 'conversion': CONVERSION_LABELS,
+            'steel': STEEL_LABELS}.get(mode, LABELS)
+
+
 WIDTHS = (88, 490, 44, 48, 66, 66, 66, 48, 64, 64, 64, 64, 64, 88)
 ROW_HEIGHT = 28
 FOOTER_HEIGHT = 28
@@ -47,6 +58,7 @@ class SheetModel(QAbstractTableModel):
         super().__init__()
         ensure_ids(rows)
         upgrade_legacy(rows)
+        freeze_rows(rows)
         for row in rows:
             sc.sync_dimensions(row)
             sync_description(row, engine)
@@ -74,6 +86,8 @@ class SheetModel(QAbstractTableModel):
         self._refresh_summary()
 
     def _rebuild_structure(self):
+        self._reference_sources = {r['id']: r for r in self.rows if r['kind'] == 'item'}
+        self._dependencies = refs.DependencyIndex(self.rows)
         self.outline = Outline(self.rows)
         self._owners, self._ends = [], {}
         self._items = self._details = 0
@@ -167,6 +181,11 @@ class SheetModel(QAbstractTableModel):
     def selection_mode(self, row):
         if row < 0 or row >= len(self.rows):
             return "standard"
+        if 'reference' in self.rows[row]:
+            ref = self.rows[row]['reference']
+            source = self._reference_sources.get(ref['source'])
+            unit = source['cells'][2] if source else ref['source_unit']
+            return 'reference' if unit == self.rows[row]['cells'][2] else 'conversion'
         owner = self._owners[row]
         return "steel" if owner is not None and self.rows[owner]["cells"][2] == "kg" else "standard"
 
@@ -195,6 +214,8 @@ class SheetModel(QAbstractTableModel):
             return column in (0, 1)
         if kind == "item":
             return column in (0, 1, 2)
+        if 'reference' in self.rows[row]:
+            return column in (1, 3, 7)
         unit = self.rows[row]["cells"][2]
         if unit == "kg":
             if 'steel_hooks' in self.rows[row] and column in (5, 6):
@@ -229,6 +250,8 @@ class SheetModel(QAbstractTableModel):
             if r in self.errors and kind == "detail" and c in (3, 4, 5, 6, 7, 9, 10):
                 return self._colors[theme.WARNING_BACKGROUND]
             return self._colors[theme.SURFACE]
+        if 'reference' in row:
+            return self.reference_data(r, c, role)
         steel = kind == "detail" and row["cells"][2] == "kg"
         if role == TOOLTIP_ROLE:
             if steel and 'steel_hooks' in row and c in (5, 6, 10):
@@ -302,6 +325,54 @@ class SheetModel(QAbstractTableModel):
             return "   " * self.outline.levels[r] + row["cells"][c]
         return row["cells"][c]
 
+    def reference_data(self, r, c, role):
+        row = self.rows[r]
+        ref = row['reference']
+        source = self._reference_sources.get(ref['source'])
+        source_unit = source['cells'][2] if source else ref['source_unit']
+        label = refs.description(row, self._reference_sources)
+        if role == TOOLTIP_ROLE:
+            return (label + '\n' + self.errors.get(r, '') + '\n'
+                    f"Valor referenciado en {source_unit}; resultado en {row['cells'][2]}. "
+                    'Se multiplica por Elem. simil. y N.º de veces (admiten negativos). '
+                    'Escribe / en Descripción para cambiar el origen o el factor.')
+        if c == 1:
+            return label if role == EDIT_ROLE else '   ' * self.outline.levels[r] + label
+        if c in (0, 2, 3, 7):
+            return row['cells'][c]
+        if c == 4:
+            value = self.values.get((r, 4))
+            return 'Pendiente' if value is None else f'{value:.2f}'
+        if c == 5:
+            if source_unit == row['cells'][2]:
+                return ''
+            return ref['factor'] or 'Pendiente'
+        result = {'m': 8, 'm2': 9, 'm3': 10, 'kg': 11}.get(row['cells'][2], 12)
+        if c == result:
+            value = self.values.get((r, 12 if row['cells'][2] == 'kg' else c))
+            return 'Pendiente' if value is None else f'{value:.2f}'
+        return ''
+
+    def set_reference(self, index, source_id, name='', factor=''):
+        source = next((row for row in self.rows if row['kind'] == 'item' and row['id'] == source_id), None)
+        if source is None:
+            raise ValueError('La partida de origen no está disponible.')
+        rows = deepcopy(self.rows)
+        row = rows[index]
+        if row['kind'] != 'detail':
+            raise ValueError('Selecciona una fila de detalle para referenciar.')
+        was_reference = 'reference' in row
+        times = row['cells'][7] if was_reference or row['cells'][2] != 'kg' else '1'
+        row['reference'] = refs.make_reference(source, row['cells'][2], name, factor)
+        row['direct'] = ''
+        row.pop('steel_catalog', None)
+        row.pop('steel_hooks', None)
+        row['cells'][1] = source['cells'][1]
+        row['cells'][4:] = [''] * 10
+        row['cells'][7] = times or '1'
+        refs.validate_row(row)
+        self.replace(rows, 'referencia de partida', (index, 1), (index, 1))
+
     def setData(self, index, value, role=Qt.EditRole):
         if getattr(self, '_batching', False):
             changed = self._set_data(index, value, role)
@@ -331,6 +402,7 @@ class SheetModel(QAbstractTableModel):
     def _sync_descriptions(self, index):
         start = index.row()
         end = self._ends.get(start, start + 1) if index.column() == 2 else start + 1
+        freeze_rows(self.rows[start:end])
         for row in self.rows[start:end]:
             sc.sync_dimensions(row)
             sync_description(row, self.engine)
@@ -343,6 +415,12 @@ class SheetModel(QAbstractTableModel):
         if c == 2 and value not in UNITS:
             return False
         row = self.rows[r]
+        if 'reference' in row:
+            if c not in (3, 7) or row['cells'][c] == value:
+                return False
+            row['cells'][c] = value
+            self.recalculate(r)
+            return True
         if row['kind'] == 'detail' and row['cells'][2] == 'kg' and c == 1:
             if value == row['cells'][1]:
                 return False
@@ -392,7 +470,7 @@ class SheetModel(QAbstractTableModel):
                 child.pop('steel_hooks', None)
                 if value != 'm3':
                     child.pop('volume_factor', None)
-                if child['kind'] == 'detail_group':
+                if child['kind'] == 'detail_group' or 'reference' in child:
                     continue
                 child["cells"][4:7] = [""] * 3
                 if value == "kg":
@@ -413,7 +491,7 @@ class SheetModel(QAbstractTableModel):
         if getattr(self, '_batching', False):
             return
         footer_changed = False
-        if row is None:
+        if row is None or self._dependencies.blocked:
             previous_footers = self.swelling_footers
             self.values, self.errors = calculate(self.rows, self.engine)
             self._rebuild_structure()
@@ -422,6 +500,9 @@ class SheetModel(QAbstractTableModel):
             start, end = 0, len(self.rows)
         else:
             owner = self._owners[row]
+            if owner is not None and self._dependencies.has_links:
+                self._recalculate_dependents(owner)
+                return
             start = row if owner is None else owner
             end = row + 1 if owner is None else self._ends[owner]
             before = sum(r in self.errors and self.rows[r]["kind"] == "detail"
@@ -449,6 +530,41 @@ class SheetModel(QAbstractTableModel):
             self.footersChanged.emit()
         if end > start:
             self.dataChanged.emit(self.index(start, 0), self.index(end - 1, 13))
+        self.changed.emit()
+
+    def _recalculate_dependents(self, owner):
+        """Row edits cannot change the graph; structural edits rebuild it once."""
+        affected = self._dependencies.affected(owner)
+        sources = {identity: (self.rows[i]['cells'][2], self.values.get((i, 13)))
+                   for identity, i in self._dependencies.items.items()}
+        footer_changed = False
+        for start in affected:
+            end = self._ends[start]
+            before = sum(r in self.errors and self.rows[r]['kind'] == 'detail' for r in range(start, end))
+            values, errors = _calculate_plain(self.rows[start:end], self.engine, sources)
+            for r in range(start, end):
+                self.errors.pop(r, None)
+                for c in range(15):
+                    self.values.pop((r, c), None)
+            self.values.update(((r + start, c), value) for (r, c), value in values.items())
+            self.errors.update((r + start, error) for r, error in errors.items())
+            self._pending += sum(self.rows[start + r]['kind'] == 'detail' for r in errors) - before
+            item = self.rows[start]
+            sources[item['id']] = (item['cells'][2], values.get((0, 13)))
+            self._reference_sources[item['id']] = item
+            previous = {e: s for e, s in self.swelling_footers.items() if start <= e < end}
+            current = {e + start: s + start for s, e in volume_blocks(self.rows[start:end])}
+            for e, s in previous.items():
+                self.swelling_footers.pop(e)
+                self._swelling_ends.pop(s)
+            self.swelling_footers.update(current)
+            self._swelling_ends.update({s: e for e, s in current.items()})
+            footer_changed |= previous != current
+        self._refresh_summary()
+        if footer_changed:
+            self.footersChanged.emit()
+        for start in affected:
+            self.dataChanged.emit(self.index(start, 0), self.index(self._ends[start] - 1, 13))
         self.changed.emit()
 
     def paste_cells(self, start_row, start_column, matrix):
@@ -487,7 +603,9 @@ class SheetModel(QAbstractTableModel):
 
     def replace(self, rows, label=None, before_selection=None, after_selection=None):
         ensure_ids(rows)
+        refs.check_cycles(rows)
         upgrade_legacy(rows)
+        freeze_rows(rows)
         for row in rows:
             sc.sync_dimensions(row)
             sync_description(row, self.engine)
@@ -500,6 +618,7 @@ class SheetModel(QAbstractTableModel):
 
     def _replace(self, rows):
         upgrade_legacy(rows)
+        freeze_rows(rows)
         self.beginResetModel()
         self.rows = rows
         self.values, self.errors = calculate(rows, self.engine)
@@ -512,7 +631,7 @@ class SheetModel(QAbstractTableModel):
     def steel_catalog_for(self, index):
         row = self.rows[index]
         owner = self._owners[index]
-        return deepcopy(row.get('steel_catalog') or
+        return editable_copy(row.get('steel_catalog') or
                         (self.rows[owner].get('steel_catalog') if owner is not None else None) or
                         self.steel_defaults or sc.initial_catalog())
 
@@ -543,7 +662,7 @@ class SheetModel(QAbstractTableModel):
         self.replace(rows, 'actualización de aceros de la obra')
 
     def set_direct(self, index, value):
-        if self.rows[index]["kind"] != "detail":
+        if self.rows[index]["kind"] != "detail" or 'reference' in self.rows[index]:
             return
         before = deepcopy(self.rows[index:index + 1])
         after = deepcopy(before)
@@ -576,7 +695,7 @@ class GroupedHeader(QHeaderView):
         font.setWeight(QFont.DemiBold)
         painter.setFont(font)
         height, half = self.height(), self.height() // 2
-        labels = STEEL_LABELS if self.mode == "steel" else LABELS
+        labels = labels_for_mode(self.mode)
 
         def cell(first, last, top, bottom, text, rotate=False):
             visible = [i for i in range(first, last + 1) if not self.isSectionHidden(i)]
@@ -600,7 +719,7 @@ class GroupedHeader(QHeaderView):
 
         for column in (0, 1, 2, 3, 7, 13):
             cell(column, column, 0, height, labels[column], column in (2, 3, 7))
-        cell(4, 6, 0, half, "DIMENSIONES")
+        cell(4, 6, 0, half, "REFERENCIA" if self.mode in ('reference', 'conversion') else "DIMENSIONES")
         cell(8, 12, 0, half, "METRADO")
         for column in (4, 5, 6, 8, 9, 10, 11, 12):
             cell(column, column, half, height, labels[column])
@@ -625,7 +744,19 @@ class SheetDelegate(QStyledItemDelegate):
             if current not in DIAMETERS:
                 editor.insertItem(0, current)
             return editor
-        return super().createEditor(parent, option, index)
+        editor = super().createEditor(parent, option, index)
+        if index.column() == 1 and row['kind'] == 'detail':
+            editor.setProperty('reference_row', index.row())
+        return editor
+
+    def eventFilter(self, editor, event):
+        row = editor.property('reference_row')
+        if (row is not None and event.type() == QEvent.KeyPress and event.text() == '/'
+                and (editor.cursorPosition() == 0 or editor.hasSelectedText())):
+            self.closeEditor.emit(editor, QAbstractItemDelegate.RevertModelCache)
+            self.parent().referenceRequested.emit(row)
+            return True
+        return super().eventFilter(editor, event)
 
     def setEditorData(self, editor, index):
         if isinstance(editor, QComboBox):
@@ -681,6 +812,44 @@ class SheetDelegate(QStyledItemDelegate):
 
 class SheetView(QTableView):
     focusEntered = Signal()
+    referenceRequested = Signal(int)
+
+    def selected_row_numbers(self):
+        """Read selection ranges, never instantiate one QModelIndex per cell."""
+        rows = set()
+        for selected in self.selectionModel().selection():
+            rows.update(r for r in range(selected.top(), selected.bottom() + 1)
+                        if not self.isRowHidden(r))
+        return rows
+
+    def selection_has_full_row(self):
+        coverage = {}
+        complete = (1 << self.model().columnCount()) - 1
+        for selected in self.selectionModel().selection():
+            mask = ((1 << selected.width()) - 1) << selected.left()
+            for row in range(selected.top(), selected.bottom() + 1):
+                if not self.isRowHidden(row):
+                    coverage[row] = coverage.get(row, 0) | mask
+                    if coverage[row] == complete:
+                        return True
+        return False
+
+    def selectAll(self):
+        selection = QItemSelection()
+        start = None
+        for row in range(self.model().rowCount() + 1):
+            visible = row < self.model().rowCount() and not self.isRowHidden(row)
+            if visible and start is None:
+                start = row
+            elif not visible and start is not None:
+                selection.select(self.model().index(start, 0), self.model().index(row - 1, 13))
+                start = None
+        self.selectionModel().select(selection, QItemSelectionModel.ClearAndSelect)
+
+    def setCurrentIndex(self, index):
+        # Navigation/history chooses one cell even while Ctrl/Shift from its
+        # shortcut is still pressed. Mouse/keyboard range selection stays native.
+        self.selectionModel().setCurrentIndex(index, QItemSelectionModel.ClearAndSelect)
 
     def focusInEvent(self, event):
         self.focusEntered.emit()
@@ -814,7 +983,9 @@ class SheetView(QTableView):
         return super().event(event)
 
     def keyPressEvent(self, event):
-        if event.matches(QKeySequence.Copy):
+        if event.text() == '/' and self.currentIndex().column() == 1:
+            self.referenceRequested.emit(self.currentIndex().row())
+        elif event.matches(QKeySequence.Copy):
             self.clipboardRequested.emit('copy')
         elif event.matches(QKeySequence.Paste):
             self.clipboardRequested.emit('paste')
@@ -828,6 +999,6 @@ class SheetView(QTableView):
         if self.horizontalHeader().mode == mode:
             return
         self.horizontalHeader().set_mode(mode)
-        self.model().header_labels = STEEL_LABELS if mode == "steel" else LABELS
+        self.model().header_labels = labels_for_mode(mode)
         self.model().headerDataChanged.emit(Qt.Horizontal, 0, 13)
         # Column widths remain fixed when switching between standard and steel headers.

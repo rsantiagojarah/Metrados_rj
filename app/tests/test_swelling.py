@@ -251,6 +251,7 @@ class BlockStorageTests(unittest.TestCase):
             con.execute('DROP TABLE detail_swelling')
             con.execute('DROP TABLE steel_hooks')
             con.execute('DROP TABLE steel_catalog')
+            con.execute('DROP TABLE detail_references')
             if version == 1:
                 con.execute('DROP TABLE item_swelling')
             else:
@@ -265,7 +266,7 @@ class BlockStorageTests(unittest.TestCase):
         self.assertEqual(read_database(self.path), ('Obra', self.model.rows, revision))
         self.assertEqual(write_database(self.path, 'Obra', self.model.rows, revision), revision)
         with closing(sqlite3.connect(self.path)) as con:
-            self.assertEqual(con.execute('PRAGMA user_version').fetchone()[0], 4)
+            self.assertEqual(con.execute('PRAGMA user_version').fetchone()[0], 5)
             self.assertEqual(con.execute('SELECT factor, note FROM detail_swelling').fetchall(),
                              [('1,20', 'Criterio del proyecto')] * 2)
             self.assertEqual(con.execute('PRAGMA foreign_key_check').fetchall(), [])

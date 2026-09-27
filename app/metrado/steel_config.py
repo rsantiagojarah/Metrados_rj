@@ -45,6 +45,9 @@ def initial_catalog():
 
 
 def validate_catalog(catalog):
+    from metrado.steel_snapshot import CatalogSnapshot
+    if isinstance(catalog, CatalogSnapshot):
+        return  # Already validated and immutable, including nested entries.
     if not isinstance(catalog, dict) or set(catalog) != set(DIAMETERS):
         raise ValueError('La tabla debe contener todos los diámetros de acero.')
     for diameter, values in catalog.items():
@@ -73,6 +76,8 @@ def validate_row(row):
 
 
 def adopt(row, catalog, *, preserve_hooks=False):
+    if 'reference' in row:
+        return
     validate_catalog(catalog)
     if row['kind'] == 'detail' and row['cells'][7] and row['cells'][7] not in catalog and not row['direct']:
         raise ValueError('El diámetro ' + row['cells'][7] + ' no está en la tabla de aceros. '
@@ -113,7 +118,7 @@ def sync_dimensions(row):
 def selected_details(rows, selected):
     indexes = sorted(set(selected))
     if not indexes or any(i < 0 or i >= len(rows) or rows[i]['kind'] != 'detail' or
-                          rows[i]['cells'][2] != 'kg' or rows[i]['direct'] for i in indexes):
+                          rows[i]['cells'][2] != 'kg' or rows[i]['direct'] or 'reference' in rows[i] for i in indexes):
         raise ValueError('Selecciona uno o varios detalles de acero, sin títulos ni cantidades directas.')
     for i in indexes:
         if rows[i]['cells'][7] not in DIAMETERS:

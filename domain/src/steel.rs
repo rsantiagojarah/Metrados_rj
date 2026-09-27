@@ -22,14 +22,14 @@ pub fn sheet_steel(
     require_positive(largo)?;
     require_non_negative(gancho)?;
     require_non_negative(empalme)?;
-    require_positive(bars)?;
-    require_positive(elements)?;
-    require_positive(veces)?;
+    require_positive(bars.abs())?;
+    require_positive(elements.abs())?;
+    require_positive(veces.abs())?;
     let diameter_m = parse_diameter_meters(diameter)?;
     let length = largo + gancho + empalme;
     let kg_per_m = std::f64::consts::PI / 4.0 * diameter_m * diameter_m * STEEL_DENSITY;
     let weight = elements * length * bars * kg_per_m * veces;
-    if !length.is_finite() || !kg_per_m.is_finite() || !weight.is_finite() || weight <= 0.0 {
+    if !length.is_finite() || !kg_per_m.is_finite() || !weight.is_finite() || weight == 0.0 {
         return Err(DomainError::NonPositiveMeasure);
     }
     Ok(SteelQuantity {

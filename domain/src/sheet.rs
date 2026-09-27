@@ -8,8 +8,8 @@ pub fn sheet_quantity(
     repetitions: f64,
     direct: Option<f64>,
 ) -> Result<f64, DomainError> {
-    Dimension::try_new("elementos", similar)?;
-    Dimension::try_new("repeticiones", repetitions)?;
+    Dimension::try_new("elementos", similar.abs())?;
+    Dimension::try_new("repeticiones", repetitions.abs())?;
     let geometric = match unit {
         "m" => Some(Unit::LinearMeter),
         "m2" => Some(Unit::SquareMeter),
@@ -36,7 +36,7 @@ pub fn sheet_quantity(
         1.0
     };
     let result = base * similar * repetitions;
-    if !result.is_finite() || result <= 0.0 {
+    if !result.is_finite() || result == 0.0 {
         return Err(DomainError::NonPositiveMeasure);
     }
     Ok(result)
@@ -46,7 +46,9 @@ pub fn sheet_quantity(
 pub fn sheet_total(quantities: &[f64]) -> Result<f64, DomainError> {
     let mut total = 0.0;
     for value in quantities {
-        Dimension::try_new("cantidad", *value)?;
+        if !value.is_finite() {
+            return Err(DomainError::NonPositiveMeasure);
+        }
         total += value;
         if !total.is_finite() {
             return Err(DomainError::NonPositiveMeasure);
@@ -108,11 +110,14 @@ mod tests {
 
     #[test]
     fn invalid_inputs_do_not_produce_quantities() {
-        for value in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+        for value in [0.0, f64::NAN, f64::INFINITY] {
             assert!(sheet_quantity("und", vec![], value, 1.0, None).is_err());
             assert!(sheet_quantity("und", vec![], 1.0, value, None).is_err());
             assert!(sheet_quantity("kg", vec![], 1.0, 1.0, Some(value)).is_err());
         }
+        assert!(sheet_quantity("kg", vec![], 1.0, 1.0, Some(-1.0)).is_err());
+        assert_eq!(sheet_quantity("und", vec![], -2.0, 3.0, None), Ok(-6.0));
+        assert_eq!(sheet_quantity("und", vec![], -2.0, -3.0, None), Ok(6.0));
         assert!(sheet_quantity("kg", vec![], 1.0, 1.0, None).is_err());
         assert!(sheet_quantity("m2", dims(&[("largo", 2.0)]), 1.0, 1.0, None).is_err());
         assert!(sheet_quantity("otro", vec![], 1.0, 1.0, None).is_err());
@@ -131,6 +136,7 @@ mod tests {
         assert_eq!(sheet_total(&[]), Ok(0.0));
         assert_eq!(sheet_total(&[80.0, 20.0]), Ok(100.0));
         assert!(sheet_total(&[f64::NAN]).is_err());
-        assert!(sheet_total(&[-1.0]).is_err());
+        assert_eq!(sheet_total(&[10.0, -10.0, 0.0]), Ok(0.0));
+        assert_eq!(sheet_total(&[-1.0]), Ok(-1.0));
     }
 }

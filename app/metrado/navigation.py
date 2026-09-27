@@ -200,7 +200,7 @@ class PartidaWorkspace(QWidget):
         # Matching heading widgets share font metrics, padding and vertical
         # size policy at every display scale, so both tables start together.
         caption = PartidaHeading()
-        caption.set_parts('PARTIDAS · Doble clic o F2 para editar')
+        caption.set_parts('PARTIDAS')
         left_layout.addWidget(caption)
         left_layout.addWidget(self.navigator, 1)
         right = QWidget()

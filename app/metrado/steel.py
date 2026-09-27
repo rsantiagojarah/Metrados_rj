@@ -23,14 +23,14 @@ def description_base(description):
 
 def sync_description(row, engine):
     """Persist one suffix, derived from the same inputs as the visible bar count."""
-    if row['kind'] != 'detail' or row['cells'][2] != 'kg':
+    if row['kind'] != 'detail' or row['cells'][2] != 'kg' or 'reference' in row:
         return
     cells = row['cells']
     try:
         count = (float(cells[9].replace(',', '.')) if row['direct'] else
                  engine.ask_sheet_quantity('und', [], float(cells[10].replace(',', '.')),
                                            float(cells[9].replace(',', '.') or '1'), None))
-        quantity = f'{count:g}' if math.isfinite(count) and count > 0 else '?'
+        quantity = f'{count:g}' if math.isfinite(count) and count != 0 else '?'
     except (ValueError, OverflowError):
         quantity = '?'
     diameter = cells[7].strip() or '?'

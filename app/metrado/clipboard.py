@@ -8,8 +8,9 @@ from uuid import uuid4
 from PySide6.QtCore import QMimeData, Qt
 
 from metrado.hierarchy import MAX_ROWS, MEASUREMENT_KINDS, Outline, materialize, renumber
-from metrado.sheet import calculate, new_row, validate_project
+from metrado.sheet import _calculate_plain, new_row, validate_project
 from metrado.swelling import factor_text, upgrade_legacy, volume_blocks
+from metrado.references import check_cycles
 
 ROW_MIME = 'application/x-metrado-rows+json'
 MAX_BYTES = 10_000_000
@@ -43,7 +44,9 @@ def encode_rows(model, selected):
             text.append([cell_text(model, i, c) for c in range(14)])
     # Compute summaries from the copied subset, not the source block's total.
     wrapper = [new_row('item', unit=block[0]['cells'][2])] if block[0]['kind'] in MEASUREMENT_KINDS else []
-    values, _ = calculate(wrapper + block, model.engine)
+    sources = {row['id']: (row['cells'][2], model.values.get((i, 13)))
+               for i, row in enumerate(model.rows) if row['kind'] == 'item'}
+    values, _ = _calculate_plain(wrapper + block, model.engine, sources)
     for start, end in reversed(list(volume_blocks(block))):
         summary = [''] * 14
         summary[8:10] = ['FE', factor_text(block[start]['volume_factor'])]
@@ -51,7 +54,7 @@ def encode_rows(model, selected):
         summary[10] = 'Pendiente' if total is None else f'{total:.2f}'
         text.insert(end + 1, summary)
     mime = QMimeData()
-    version = 5 if any('steel_catalog' in row for row in block) else 4 if any('volume_factor' in row for row in block) else 3 if any('swelling' in row for row in block) else 2 if any(row['kind'] == 'detail_group' for row in block) else 1
+    version = 6 if any('reference' in row for row in block) else 5 if any('steel_catalog' in row for row in block) else 4 if any('volume_factor' in row for row in block) else 3 if any('swelling' in row for row in block) else 2 if any(row['kind'] == 'detail_group' for row in block) else 1
     payload = json.dumps({'version': version, 'rows': block}, ensure_ascii=False,
                          separators=(',', ':') if version == 5 else None).encode('utf-8')
     if len(payload) > MAX_BYTES:
@@ -92,7 +95,7 @@ def decode_rows(raw):
         raise ValueError('El portapapeles supera el límite de 10 MB.')
     try:
         data = json.loads(bytes(raw).decode('utf-8'))
-        if not isinstance(data, dict) or data.get('version') not in (1, 2, 3, 4, 5) or not isinstance(data.get('rows'), list):
+        if not isinstance(data, dict) or data.get('version') not in (1, 2, 3, 4, 5, 6) or not isinstance(data.get('rows'), list):
             raise ValueError('Formato de filas no reconocido.')
         rows = data['rows']
         if not rows or len(rows) > MAX_ROWS:
@@ -104,13 +107,16 @@ def decode_rows(raw):
         swelling = any('swelling' in row for row in rows)
         blocks = any('volume_factor' in row for row in rows)
         steel = any('steel_catalog' in row or 'steel_hooks' in row for row in rows)
+        references = any('reference' in row for row in rows)
+        if references and data['version'] < 6:
+            raise ValueError('Las referencias requieren portapapeles versión 6.')
         if steel and data['version'] < 5:
             raise ValueError('El acero configurado requiere portapapeles versión 5.')
         if blocks and data['version'] < 4:
             raise ValueError('El FE por detalles requiere portapapeles versión 4.')
         if swelling and data['version'] < 3:
             raise ValueError('El bloque con esponjamiento requiere una versión de portapapeles más reciente.')
-        version = 6 if steel else 5 if blocks else 4 if swelling else 3 if any(row['kind'] == 'detail_group' for row in rows) else 2
+        version = 7 if references else 6 if steel else 5 if blocks else 4 if swelling else 3 if any(row['kind'] == 'detail_group' for row in rows) else 2
         if rows[0]['kind'] in MEASUREMENT_KINDS:
             if any(row['kind'] not in MEASUREMENT_KINDS or
                    row['cells'][2] != rows[0]['cells'][2] for row in rows):
@@ -155,12 +161,17 @@ def insert_rows(rows, selected, block):
     else:
         parent, position, level = None, len(result), 0
     factor_ids = {}
+    new_ids = {row['id']: uuid4().hex for row in block if 'id' in row}
     for row in block:
         row['level'] += level
         if 'id' in row:
-            row['id'] = uuid4().hex
+            row['id'] = new_ids[row['id']]
+        if 'reference' in row:
+            ref = row['reference']
+            ref['source'] = new_ids.get(ref['source'], ref['source'])
         if 'volume_factor' in row:
             config = row['volume_factor']
             config['block'] = factor_ids.setdefault(config['block'], uuid4().hex)
     result[position:position] = block
+    check_cycles(result)
     return renumber(result), position

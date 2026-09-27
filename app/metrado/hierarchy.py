@@ -60,9 +60,14 @@ class Outline:
         return result
 
 
-def materialize(rows):
+def materialize(rows, *, immutable_catalogs=False):
     outline = Outline(rows, strict=True)
-    result = deepcopy(rows)
+    memo = None
+    if immutable_catalogs:
+        from metrado.steel_snapshot import freeze
+        memo = {id(row['steel_catalog']): freeze(row['steel_catalog'])
+                for row in rows if 'steel_catalog' in row}
+    result = deepcopy(rows, memo)
     for row, level in zip(result, outline.levels):
         row['level'] = level
     return result
@@ -170,3 +175,63 @@ def change_level(rows, index, inward):
     del result[index:end]
     result[position:position] = block
     return renumber(result), position
+
+
+def level_selection(rows, selected, inward, outline=None):
+    """Validate original roots, not a succession of partially moved selections."""
+    outline = outline or Outline(rows, strict=True)
+    roots, end = [], -1
+    for index in sorted(set(selected)):
+        if not 0 <= index < len(rows):
+            raise ValueError('Selecciona filas válidas para cambiar de nivel.')
+        if index >= end:
+            roots.append(index)
+            end = outline.ends[index]
+    if not roots:
+        raise ValueError('Selecciona una o varias filas para cambiar de nivel.')
+    anchors = {}
+    for index in roots:
+        measurement = rows[index]['kind'] in MEASUREMENT_KINDS
+        if inward:
+            previous = outline.previous[index]
+            # Selected siblings stay siblings, even if a selected one is a title.
+            anchor = anchors.get(previous, previous)
+            expected = 'detail_group' if measurement else 'chapter'
+            if anchor is None or rows[anchor]['kind'] != expected:
+                raise ValueError('Para aumentar nivel, cada bloque seleccionado debe seguir a un título o subtítulo no seleccionado del mismo nivel. No se cambió ninguna fila.')
+            anchors[index] = anchor
+        else:
+            parent = outline.parents[index]
+            if parent is None or (measurement and rows[parent]['kind'] == 'item'):
+                raise ValueError('No se puede reducir toda la selección: hay filas en el nivel principal o detalles directamente dentro de una partida. No se cambió ninguna fila.')
+    return roots
+
+
+def change_levels(rows, selected, inward):
+    """One atomic O(n) move of selected subtrees; outdenting skips retained siblings."""
+    outline = Outline(rows, strict=True)
+    roots = level_selection(rows, selected, inward, outline)
+    result = materialize(rows)
+    if inward:
+        for index in roots:
+            for row in result[index:outline.ends[index]]:
+                row['level'] += 1
+        return renumber(result)
+    insertions, removed = {}, set()
+    for index in roots:
+        end = outline.ends[index]
+        block = result[index:end]
+        for row in block:
+            row['level'] -= 1
+        parent = outline.parents[index]
+        insertions.setdefault(outline.ends[parent], []).append((outline.levels[parent], block))
+        removed.update(range(index, end))
+    moved = []
+    for index in range(len(result) + 1):
+        # Nested parents can end together: emit inner children before leaving
+        # the outer parent. Stable sorting preserves the order of siblings.
+        for _, block in sorted(insertions.get(index, ()), key=lambda pair: -pair[0]):
+            moved.extend(block)
+        if index < len(result) and index not in removed:
+            moved.append(result[index])
+    return renumber(moved)

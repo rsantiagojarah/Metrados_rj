@@ -2,24 +2,24 @@ from pathlib import Path
 import sqlite3
 from shiboken6 import isValid
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QItemSelectionModel, QSignalBlocker, Qt
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
-    QApplication, QDialog, QFileDialog, QInputDialog, QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox,
+    QApplication, QDialog, QFileDialog, QInputDialog, QLineEdit, QMainWindow, QMenu, QMessageBox,
     QToolBar, QVBoxLayout, QWidget,
 )
 
 from metrado.grid import SheetModel, SheetView
-from metrado.chrome import add_action, action_toolbar, header_toolbar
+from metrado.chrome import add_action, add_flat_action, action_toolbar, header_toolbar, ContextStatusBar, SPECS
 from metrado.theme import apply_theme
 from metrado.sheet import (
-    example_rows, new_row, parent_item, subtree_end, write_project,
+    example_rows, new_row, parent_item, write_project,
 )
 from metrado.steel import first_steel_item
 from metrado.hierarchy import (
-    MAX_ROWS, MEASUREMENT_KINDS, change_level, container, materialize, move_sibling, move_to, renumber,
+    MAX_ROWS, MEASUREMENT_KINDS, change_levels, level_selection, container, materialize, move_sibling, move_to, renumber,
 )
-from metrado.clipboard import ROW_MIME, cell_text, decode_rows, encode_rows, insert_rows, parse_tsv, tsv
+from metrado.clipboard import ROW_MIME, cell_text, decode_rows, encode_rows, insert_rows, parse_tsv, selected_roots, tsv
 from metrado.organize import DestinationDialog
 from metrado.database import open_document, write_database
 from metrado.history import ProjectTitle
@@ -28,6 +28,9 @@ from metrado.navigation import PartidaWorkspace
 from metrado import steel_config as sc
 from metrado.steel_store import CatalogStore
 from metrado.steel_dialog import CatalogDialog, HooksDialog
+from metrado.shortcuts import KeyboardController
+from metrado.reference_dialog import ReferencePicker, ConversionDialog
+from metrado import references as refs
 
 
 class PlantillaWindow(QMainWindow):
@@ -35,6 +38,8 @@ class PlantillaWindow(QMainWindow):
         super().__init__()
         self._enlace, self._path, self._dirty = enlace, None, False
         self._revision = None
+        self.command_actions = []
+        self.setStatusBar(ContextStatusBar(self))
         self.resize(1480, 780)
         self.setMinimumSize(900, 480)
         self.model = SheetModel(enlace, example_rows())
@@ -46,6 +51,7 @@ class PlantillaWindow(QMainWindow):
             self._catalog_error = str(error)
         self.model.setParent(self)
         self.table = SheetView(self.model)
+        self.table.referenceRequested.connect(self.reference_partida)
         self.workspace = PartidaWorkspace(self.model, self.table, self)
         self.navigator = self.workspace.navigator
         central = QWidget()
@@ -56,15 +62,7 @@ class PlantillaWindow(QMainWindow):
         self._committed_title = self.title_edit.text()
         self.title_edit.setPlaceholderText("Nombre de la obra o proyecto")
         header_toolbar(self, self.title_edit)
-        hint = QLabel("Organizar: Tab / Mayús+Tab en Ítem o Descripción · Alt+↑ / ↓ mueve el bloque · Clic derecho: más opciones · Ctrl+C / Ctrl+V")
-        hint.setObjectName("sheetHint")
-        hint.setWordWrap(True)
-        layout.addWidget(hint)
         layout.addWidget(self.workspace, 1)
-        note = QLabel("Acero: Lon. = Elem. simil. × (Largo + gancho + empalme) × N.º de veces; Kg = Lon. × kg/m. Totales por partida.")
-        note.setObjectName("sheetNote")
-        note.setWordWrap(True)
-        layout.addWidget(note)
         self.setCentralWidget(central)
         files = action_toolbar(self)
         self._action(files, "Nueva planilla", self.new_project, "Ctrl+N")
@@ -89,6 +87,7 @@ class PlantillaWindow(QMainWindow):
         self._swelling_actions()
         self._steel_actions()
         self._navigation_actions()
+        self.keyboard = KeyboardController(self)
         self.model.changed.connect(self._changed)
         self.title_edit.textEdited.connect(self._changed)
         self.title_edit.editingFinished.connect(self._commit_title)
@@ -96,10 +95,62 @@ class PlantillaWindow(QMainWindow):
         self.model.undo_stack.cleanChanged.connect(self._changed)
         self.model.selectionRequested.connect(self._select)
         self.table.selectionModel().currentChanged.connect(self._selection_status)
+        self.table.selectionModel().selectionChanged.connect(self._selection_status)
+        self.navigator.selectionModel().selectionChanged.connect(self._selection_status)
         apply_theme(self)
         self._refresh_title()
         self._selection_status()
         self._focus_steel()
+
+    def reference_partida(self, index):
+        if not 0 <= index < len(self.model.rows):
+            return
+        owner = self.model.outline.owners[index]
+        if owner is None:
+            return
+        target_unit = self.model.rows[owner]['cells'][2]
+        entries = []
+        for row in self.model.rows:
+            if row['kind'] == 'item' and row['id'] != self.model.rows[owner]['id']:
+                entries.append((f"{row['cells'][0]} · {row['cells'][1]}", row['cells'][2], row['id'], True))
+        picker = ReferencePicker(entries, self)
+        if picker.exec() != QDialog.Accepted:
+            picker.deleteLater()
+            return
+        source_id = picker.chosen
+        picker.deleteLater()
+        source = next(row for row in self.model.rows if row['id'] == source_id)
+        name, factor = '', ''
+        if source['cells'][2] != target_unit:
+            previous = self.model.rows[index].get('reference', {})
+            same_units = (previous.get('source_unit'), previous.get('target_unit')) == (source['cells'][2], target_unit)
+            dialog = ConversionDialog(source['cells'][2], target_unit, self,
+                previous.get('factor_name', '') if same_units else '', previous.get('factor', '') if same_units else '')
+            if dialog.exec() != QDialog.Accepted:
+                dialog.deleteLater()
+                return
+            name, factor = dialog.name.text(), dialog.factor.text()
+            dialog.deleteLater()
+        try:
+            if self.model.rows[index]['kind'] == 'detail':
+                self.model.set_reference(index, source_id, name, factor)
+                position = index
+            else:
+                if len(self.model.rows) >= MAX_ROWS:
+                    raise ValueError('La planilla admite hasta 10 000 filas.')
+                rows = materialize(self.model.rows)
+                position = index + 1
+                row = new_row('detail', description=source['cells'][1], unit=target_unit,
+                              level=self.model.outline.levels[index] + 1)
+                row['cells'][7] = '1'
+                row['reference'] = refs.make_reference(source, target_unit, name, factor)
+                refs.validate_row(row)
+                rows.insert(position, row)
+                self.model.replace(rows, 'referencia de partida', (index, 1), (position, 1))
+            self._select(position, 1)
+            self.table.setFocus()
+        except ValueError as error:
+            QMessageBox.warning(self, 'Referencia de partida', str(error))
 
     def _focus_steel(self):
         index = first_steel_item(self.model.rows)
@@ -109,7 +160,9 @@ class PlantillaWindow(QMainWindow):
             self._select(self.workspace.outline.node_rows[0])
 
     def _action(self, toolbar, text, callback, shortcut=None):
-        return add_action(self, toolbar, text, callback, shortcut)
+        action = add_action(self, toolbar, text, callback, shortcut)
+        self.command_actions.append(action)
+        return action
 
     def _refresh_title(self):
         name = self._path.name if self._path else "Sin guardar"
@@ -142,13 +195,16 @@ class PlantillaWindow(QMainWindow):
         self.edit_menu.insertAction(first, self.undo_action)
         self.edit_menu.insertAction(first, self.redo_action)
         self.edit_menu.insertSeparator(first)
-        toolbar = self.findChild(QToolBar, 'organizeStrip')
+        toolbar = self.findChild(QToolBar, 'actionStrip')
         toolbar.addSeparator()
-        toolbar.addActions([self.undo_action, self.redo_action])
+        add_flat_action(toolbar, self.undo_action, SPECS['Deshacer'])
+        add_flat_action(toolbar, self.redo_action, SPECS['Rehacer'])
         file_menu = self.menuBar().addMenu('Archivo')
-        file_menu.addAction('Exportar copia JSON…', self.export_json)
+        self.export_action = file_menu.addAction('Exportar copia JSON…', self.export_json)
 
     def _selection_status(self, *args):
+        if self.workspace._resetting:
+            return
         index = self.table.currentIndex()
         if hasattr(self, 'hooks_action'):
             row = index.row()
@@ -162,22 +218,35 @@ class PlantillaWindow(QMainWindow):
             row = index.row()
             outline = self.model.outline
             previous = outline.previous[row] if valid else None
-            measurement = valid and self.model.rows[row]['kind'] in MEASUREMENT_KINDS
-            parent = outline.parents[row] if valid else None
-            expected = 'detail_group' if measurement else 'chapter'
             enabled = {
                 'up': valid and previous is not None,
                 'down': valid and outline.following[row] is not None,
-                'indent': valid and previous is not None and self.model.rows[previous]['kind'] == expected,
-                'outdent': valid and parent is not None and (not measurement or self.model.rows[parent]['kind'] == 'detail_group'),
                 'move': valid, 'copy': valid, 'copy_rows': valid,
             }
+            selected, _ = self._selected_rows()
+            for key, inward in (('indent', True), ('outdent', False)):
+                try:
+                    level_selection(self.model.rows, selected, inward, outline)
+                    enabled[key] = True
+                except ValueError:
+                    enabled[key] = False
             for key, active in enabled.items():
                 self.row_actions[key].setEnabled(active)
         if index.isValid() and index.row() in self.model.errors:
             message = self.model.errors[index.row()]
         else:
             message = self.model.summary_text
+        mode = self.model.selection_mode(index.row())
+        help_text = '/: referencia · F6: panel · Ctrl+F: buscar · Ctrl+K: comandos · F1: ayuda · Tab/Mayús+Tab: nivel'
+        if self.workspace.navigation_active:
+            context = 'Partidas: Enter abre el desarrollo · F2 edita · ' + help_text
+        elif mode in ('reference', 'conversion'):
+            context = 'Total = valor referenciado × ' + ('factor × ' if mode == 'conversion' else '') + 'Elem. simil. × N.º veces · ' + help_text
+        elif mode == 'steel':
+            context = 'Acero: Lon. = Elem. × (Largo + ganchos + empalmes) × N.º veces; Kg = Lon. × kg/m · ' + help_text
+        else:
+            context = 'Metrado: dimensiones × Elem. simil. × N.º veces · ' + help_text
+        self.statusBar().set_context(context, self.model.summary_text)
         if self.statusBar().currentMessage() != message:
             self.statusBar().showMessage(message)
 
@@ -202,11 +271,8 @@ class PlantillaWindow(QMainWindow):
         self._context_menu(point, self.navigator)
 
     def _organize_actions(self):
-        toolbar = QToolBar('Organizar', self)
-        toolbar.setObjectName('organizeStrip')
-        toolbar.setMovable(False)
-        self.addToolBarBreak()
-        self.addToolBar(toolbar)
+        toolbar = self.findChild(QToolBar, 'actionStrip')
+        toolbar.addSeparator()
         self.organize_menu = self.menuBar().addMenu('Organizar')
         self.edit_menu = self.menuBar().addMenu('Edición')
         self.row_actions = {}
@@ -225,7 +291,7 @@ class PlantillaWindow(QMainWindow):
             action.triggered.connect(lambda checked=False, fn=callback: fn())
             self.table.addAction(action)
             self.organize_menu.addAction(action)
-            toolbar.addAction(action)
+            add_flat_action(toolbar, action)
             self.row_actions[key] = action
         toolbar.addSeparator()
         for key, text, callback, shortcut in (
@@ -241,7 +307,7 @@ class PlantillaWindow(QMainWindow):
                 self.table.addAction(action)
             action.setToolTip(text + (f' ({shortcut})' if shortcut else ''))
             if key in ('copy', 'paste'):
-                toolbar.addAction(action)
+                add_flat_action(toolbar, action)
             action.triggered.connect(lambda checked=False, fn=callback: fn())
             self.edit_menu.addAction(action)
             self.row_actions[key] = action
@@ -256,7 +322,8 @@ class PlantillaWindow(QMainWindow):
         footer_owner = self.table.footer_owner_at(point) if view is self.table else None
         if footer_owner is not None:
             index = self.model.index(footer_owner, 1)
-        if index.isValid() and not self.table.selectionModel().isSelected(index):
+        selected_rows = self.table.selected_row_numbers()
+        if view is self.table and index.isValid() and index.row() not in selected_rows:
             self._select(index.row(), index.column())
         menu = QMenu(self)
         menu.addActions([self.undo_action, self.redo_action])
@@ -282,9 +349,9 @@ class PlantillaWindow(QMainWindow):
         menu.addSeparator()
         self.update_steel_action = menu.addAction('Actualizar aceros de esta obra…', self.update_project_steel)
         self.hooks_action.setToolTip('Selecciona detalles de acero y aplica 1 o 2 ganchos. Reemplaza los anteriores.')
-        toolbar = self.findChild(QToolBar, 'organizeStrip')
+        toolbar = self.findChild(QToolBar, 'actionStrip')
         toolbar.addSeparator()
-        toolbar.addAction(self.hooks_action)
+        add_flat_action(toolbar, self.hooks_action)
         if self._catalog_error:
             self.catalog_action.setToolTip(self._catalog_error)
 
@@ -305,8 +372,7 @@ class PlantillaWindow(QMainWindow):
 
     def edit_steel_hooks(self):
         self._commit_editors()
-        selected = {i.row() for i in self.table.selectionModel().selectedIndexes()
-                    if not self.table.isRowHidden(i.row())}
+        selected = self.table.selected_row_numbers()
         try:
             indexes = sc.selected_details(self.model.rows, selected)
             if self._catalog_error and any('steel_catalog' not in self.model.rows[i] and
@@ -343,14 +409,14 @@ class PlantillaWindow(QMainWindow):
         self.swelling_action.triggered.connect(lambda checked=False: self.edit_swelling())
         self.edit_menu.addSeparator()
         self.edit_menu.addAction(self.swelling_action)
-        toolbar = self.findChild(QToolBar, 'organizeStrip')
+        toolbar = self.findChild(QToolBar, 'actionStrip')
         toolbar.addSeparator()
-        toolbar.addAction(self.swelling_action)
+        add_flat_action(toolbar, self.swelling_action)
         self.table.swellingRequested.connect(self.edit_swelling)
 
     def edit_swelling(self, owner=None):
         self._commit_editors()
-        selected = ({i.row() for i in self.table.selectionModel().selectedIndexes() if not self.table.isRowHidden(i.row())}
+        selected = (self.table.selected_row_numbers()
                     if owner is None else {owner})
         try:
             start, end = self.model.swelling_selection(selected)
@@ -378,18 +444,40 @@ class PlantillaWindow(QMainWindow):
             return
         try:
             rows, position = operation(self.model.rows, index.row(), *args)
+            self.model.replace(rows, 'movimiento de bloque',
+                               (index.row(), index.column()), (position, index.column()))
         except ValueError as error:
             self.statusBar().showMessage(str(error), 7000)
             return
-        self.model.replace(rows, 'movimiento de bloque',
-                           (index.row(), index.column()), (position, index.column()))
         self._select(position, index.column())
 
     def move_row(self, direction):
         self._apply_structure(move_sibling, direction)
 
     def indent_row(self, inward):
-        self._apply_structure(change_level, inward)
+        self._commit_editors()
+        selected, tree = self._selected_rows()
+        if not selected:
+            return
+        identities = {self.model.rows[i]['id'] for i in selected}
+        current = self.table.currentIndex()
+        try:
+            rows = change_levels(self.model.rows, selected, inward)
+            positions = [i for i, row in enumerate(rows) if row['id'] in identities]
+            self.workspace.navigation_active = tree
+            self.model.replace(rows, 'aumento de nivel de selección' if inward else 'reducción de nivel de selección',
+                               (current.row(), current.column()), (positions[0], 1))
+        except ValueError as error:
+            self.statusBar().showMessage(str(error), 7000)
+            return
+        self._select(positions[0], 1)
+        view = self.navigator if tree else self.table
+        with QSignalBlocker(view.selectionModel()):
+            for position in positions:
+                index = self.workspace.outline.for_row(position, 1) if tree else self.model.index(position, 1)
+                flags = QItemSelectionModel.Select | (QItemSelectionModel.Rows if tree else QItemSelectionModel.NoUpdate)
+                view.selectionModel().select(index, flags)
+        self._selection_status()
 
     def move_to_parent(self, destination):
         self._apply_structure(move_to, destination)
@@ -415,19 +503,20 @@ class PlantillaWindow(QMainWindow):
                     QMessageBox.warning(self, 'No se pudo copiar', str(error))
             return
         selection = self.table.selectionModel()
-        indexes = [i for i in selection.selectedIndexes() if not self.table.isRowHidden(i.row())]
-        if not indexes:
+        rows = self.table.selected_row_numbers()
+        if not rows:
             return
         try:
-            if whole_rows or selection.selectedRows():
-                mime = encode_rows(self.model, {index.row() for index in indexes})
+            if whole_rows or self.table.selection_has_full_row():
+                mime = encode_rows(self.model, rows)
                 QApplication.clipboard().setMimeData(mime)
                 self.statusBar().showMessage('Bloque copiado con sus descendientes. Selecciona un destino y pulsa Ctrl+V.', 6000)
             else:
-                top, bottom = min(i.row() for i in indexes), max(i.row() for i in indexes)
-                left, right = min(i.column() for i in indexes), max(i.column() for i in indexes)
+                top, bottom = min(rows), max(rows)
+                ranges = [r for r in selection.selection() if any(r.top() <= row <= r.bottom() for row in rows)]
+                left, right = min(r.left() for r in ranges), max(r.right() for r in ranges)
                 columns = [c for c in self.table.visible_columns() if left <= c <= right]
-                matrix = [[cell_text(self.model, r, c) for c in columns] for r in range(top, bottom + 1)]
+                matrix = [[cell_text(self.model, r, c) for c in columns] for r in range(top, bottom + 1) if not self.table.isRowHidden(r)]
                 QApplication.clipboard().setText(tsv(matrix))
                 self.statusBar().showMessage('Celdas copiadas. Para copiar un bloque completo, usa Ctrl+Mayús+C.', 6000)
         except ValueError as error:
@@ -540,22 +629,49 @@ class PlantillaWindow(QMainWindow):
         self._select(position)
         self.workspace.edit_description(position)
 
+    def _selected_rows(self):
+        """The same active-panel selection for deletion and bulk level changes."""
+        current = self.table.currentIndex().row()
+        sheet_selected = self.table.selected_row_numbers()
+        # The hidden partida can still be the logical target after selecting an
+        # empty item or creating a title. Its selection lives in the left panel.
+        tree = self.workspace.navigation_active or (
+            not sheet_selected and 0 <= current < len(self.model.rows) and self.model.rows[current]['kind'] in ('chapter', 'item'))
+        if tree:
+            selected = {self.workspace.outline.source_row(i)
+                        for i in self.navigator.selectionModel().selectedRows()}
+        else:
+            selected = sheet_selected
+        return {i for i in selected if i is not None and 0 <= i < len(self.model.rows)}, tree
+
     def remove_row(self):
         self._commit_editors()
-        index = self.table.currentIndex().row()
-        if index < 0:
+        selected, tree = self._selected_rows()
+        if not selected:
             return
-        end = subtree_end(self.model.rows, index)
-        count = end - index
+        roots = selected_roots(self.model.rows, selected)
+        index = roots[0]
+        removed = {i for root in roots for i in range(root, self.model.outline.ends[root])}
+        count = len(removed)
         answer = QMessageBox.question(self, "Eliminar filas",
-            f"Se eliminarán {count} fila(s), incluidos los detalles que dependan de la selección. ¿Continuar?",
+            f"Se eliminarán {count} fila(s), incluidos los descendientes de los títulos o partidas seleccionados. "
+            "Puedes recuperarlas con Ctrl+Z. ¿Continuar?",
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if answer != QMessageBox.Yes:
             return
-        rows = self.model.rows[:index] + self.model.rows[end:]
-        self.model.replace(renumber(rows), 'eliminación de bloque', (index, 1), (index, 1))
-        if rows:
-            self._select(min(index, len(rows) - 1))
+        survivors = [i for i in range(len(self.model.rows)) if i not in removed]
+        if tree:
+            candidates = [i for i in self.workspace.outline.node_rows if i not in removed]
+        else:
+            owner = self.model.outline.owners[index]
+            candidates = [i for i in survivors if i > owner and self.model.outline.owners[i] == owner]
+            if not candidates and owner in survivors:
+                candidates = [owner]
+        target = next((i for i in candidates if i >= index), candidates[-1] if candidates else None)
+        position = survivors.index(target) if target is not None else 0
+        rows = [self.model.rows[i] for i in survivors]
+        self.workspace.navigation_active = tree
+        self.model.replace(renumber(rows), 'eliminación de filas', (index, 1), (position, 1))
 
     def direct_quantity(self):
         self._commit_editors()
@@ -564,6 +680,9 @@ class PlantillaWindow(QMainWindow):
             QMessageBox.information(self, "Cantidad directa", "Selecciona una fila de detalle.")
             return
         row = self.model.rows[index]
+        if 'reference' in row:
+            self.statusBar().showMessage('Este detalle usa el total de otra partida. Escribe / en Descripción para cambiar su referencia.', 7000)
+            return
         value, accepted = QInputDialog.getText(self, "Cantidad directa",
             "Cantidad base (" + row["cells"][2] + "), antes de aplicar los factores.\n"
             "Vacía el campo para volver al cálculo por dimensiones:",
@@ -591,6 +710,7 @@ class PlantillaWindow(QMainWindow):
         return answer == QMessageBox.Discard
 
     def _load(self, title, rows, path=None, revision=None):
+        self.keyboard.memory.clear()
         self.model.replace(rows)
         self.title_edit.setText(title)
         self._committed_title = title

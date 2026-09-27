@@ -115,4 +115,4 @@ def adjusted_volume(base, config, engine):
     # Empty items have a legitimate zero total; the detail engine requires > 0.
     if base == 0 or factor == 1:
         return base
-    return engine.ask_sheet_quantity('m3', [], 1.0, factor, base)
+    return engine.ask_sheet_quantity('m3', [], -1.0 if base < 0 else 1.0, factor, abs(base))

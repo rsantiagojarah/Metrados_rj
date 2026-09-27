@@ -96,6 +96,8 @@ Cada guardado se realiza en una transacción: todas sus modificaciones se confir
 
 Cerrar, crear una planilla o abrir otra consulta qué hacer con los cambios pendientes. Eliminar un título/subtítulo, incluido uno del desagregado, elimina todo su bloque con confirmación previa y puede deshacerse.
 
+**Eliminar varias filas:** selecciona filas consecutivas con Mayús o separadas con Ctrl y pulsa **Eliminar** o **Ctrl+Supr**. Se toma toda la selección del panel activo, aunque hayas seleccionado celdas en lugar de encabezados completos. Los títulos y partidas incluyen sus descendientes, sin duplicarlos si también están seleccionados. La confirmación muestra la cantidad total; **Ctrl+Z recupera todas las filas en una sola operación**. El clic derecho sobre una fila ya seleccionada conserva la selección múltiple. En la planilla no se borran detalles ocultos de otras partidas y, al vaciar el desarrollo, se mantiene la partida abierta.
+
 ## Factor de esponjamiento por bloques de detalles (m³)
 
 Selecciona **uno o varios detalles consecutivos de la misma partida m³**, arrastrando sobre sus celdas o usando Mayús+clic. No incluyas títulos ni partidas en la selección. En el clic derecho, el menú **Edición** o la barra Organizar, elige **Factor de esponjamiento…** e introduce directamente el **FE**, por ejemplo **1,20** (no 20 %). La observación es opcional y se consulta al pasar el cursor por el bloque o su línea FE. El programa no recomienda un valor técnico: utiliza el que corresponda a tu proyecto.
@@ -157,8 +159,38 @@ ORDER BY position;
 
 Para integraciones, consulta la base en modo solo lectura. Las escrituras deben pasar por la aplicación: una edición SQL externa podría romper la jerarquía o saltarse el control de revisiones.
 
+## Navegación por teclado
+
+La interfaz reúne las acciones en **una sola barra plana**, con símbolos y nombres breves. Deshacer y Rehacer no ensanchan sus botones al cambiar la operación. Cuando la ventana es estrecha, **Más acciones (»)** muestra los comandos que no caben, sin añadir otra fila. Se conservan los menús y atajos.
+
+Las aclaraciones, fórmulas, atajos y estado comparten **una sola línea inferior**, adaptada a la selección. Los avisos tienen prioridad; si el texto no cabe, pasa el cursor por esa línea para leerlo completo. **F1** mantiene disponible la ayuda de todos los atajos. Las tablas permanecen alineadas y no cambian sus anchos por esta simplificación.
+
+**Aumentar/Reducir nivel** actúa sobre todas las filas seleccionadas del panel activo, tanto en Partidas como en la Planilla. Funciona con los botones, el menú contextual, **Tab/Mayús+Tab** en Descripción o Ítem y **Alt+→/Alt+←**. Los bloques conservan sus hijos y los hermanos seleccionados mantienen su orden; seleccionar también los hijos no los mueve dos veces. La selección se conserva para continuar cambiando de nivel y **un solo Ctrl+Z** deshace toda la operación. Si alguna fila no admite el cambio, no se mueve ninguna. Para aumentar nivel, cada bloque seleccionado debe seguir a un título o subtítulo no seleccionado del mismo nivel.
+
+**F6** alterna entre Partidas y Planilla. **Ctrl+1** va directamente a Partidas y **Ctrl+2** a la Planilla. En Partidas, **Enter** abre el desarrollo seleccionado; en la Planilla, **Esc** vuelve a Partidas cuando no estás editando. Al regresar a una partida se recuerda la última fila y columna usadas durante la sesión, incluso tras reordenar filas. Si se eliminó esa fila se abre la primera disponible; una partida vacía permite crear su primer detalle con Ctrl+Enter.
+
+**Ctrl+RePág / Ctrl+AvPág** recorre partidas anteriores/siguientes en el orden del documento, saltando títulos y abriendo grupos contraídos cuando hace falta. Conserva el panel activo y no da la vuelta al llegar al extremo. **Ctrl+F** busca una partida por código, descripción, unidad o total. Escribe palabras, usa ↑/↓ y confirma con Enter; Esc cancela. La búsqueda no exige tildes ni mayúsculas.
+
+**Ctrl+K** abre el buscador de comandos: puedes crear filas, moverlas, abrir formularios, guardar, expandir/contraer títulos y ejecutar las demás acciones sin memorizar sus combinaciones. Las acciones no disponibles para la selección se muestran desactivadas. Reutiliza las mismas acciones y confirmaciones de los menús; no existe un segundo cálculo ni otro historial.
+
+**F1** abre la ayuda de atajos con filtro. También están disponibles los menús **Navegar** y **Ayuda**, y los atajos de cada acción aparecen en sus menús y avisos al pasar el cursor. Los atajos son predefinidos; no se incluye todavía un editor de combinaciones personalizadas.
+
+Cambiar de panel o abrir un buscador confirma la celda en edición antes de salir. **Esc dentro de una celda cancela esa edición**, sin cambiar de panel; Ctrl+C/V/Z conservan su función sobre el texto. Los formularios abiertos bloquean los comandos de la ventana principal. Los atajos de ganchos y FE actúan desde la planilla fuera del editor y respetan la selección. **Mayús+Espacio** selecciona la fila completa; **Mayús+flechas** amplía una selección. Tab/Mayús+Tab conservan su función de nivel solamente en Ítem/Descripción fuera de edición.
+
 | Acción | Atajo |
 | --- | --- |
+| Alternar Partidas / Planilla | F6 o Mayús+F6 |
+| Ir a Partidas / Planilla | Ctrl+1 / Ctrl+2 |
+| Abrir desarrollo / volver a Partidas | Enter en Partidas / Esc en Planilla |
+| Partida anterior / siguiente | Ctrl+RePág / Ctrl+AvPág |
+| Buscar partida / comando | Ctrl+F / Ctrl+K |
+| Ayuda de atajos | F1 |
+| Editar nombre de la obra | Ctrl+L |
+| Primera / última fila visible del panel | Ctrl+Inicio / Ctrl+Fin |
+| Seleccionar fila / todo el panel | Mayús+Espacio / Ctrl+A |
+| Aplicar ganchos / factor de esponjamiento | Ctrl+Mayús+H / Ctrl+Mayús+E |
+| Tabla global / actualizar aceros de esta obra | Ctrl+Mayús+A / Ctrl+Mayús+U |
+| Exportar copia JSON | Ctrl+Mayús+J |
 | Nueva / abrir / guardar | Ctrl+N / Ctrl+O / Ctrl+S |
 | Guardar como | Ctrl+Mayús+S |
 | Deshacer / rehacer | Ctrl+Z / Ctrl+Y o Ctrl+Mayús+Z |
@@ -177,6 +209,20 @@ Esta versión incluye edición y guardado local. No incluye exportación a Excel
 
 ## Desarrollo
 
+### Referenciar totales de otras partidas
+
+En **Descripción de un detalle**, escribe **/**, busca por nombre o código y elige con **↑/↓ y Enter**. **Esc** cancela sin modificar la fila. También puedes usar `/` en una planilla vacía para crear su primer detalle referenciado. Para cambiar el origen o su conversión, vuelve a escribir `/` en esa descripción.
+
+El valor se actualiza al editar la partida de origen, incluidas referencias encadenadas y ajustes FE. Se mantiene enlazado al renombrar, renumerar o mover partidas.
+
+- **Unidades iguales:** se toma el total directamente. No aparece factor ni sufijo de conversión.
+- **Unidades distintas:** un formulario pide el significado y el valor positivo del factor. La fila muestra el valor original, el factor y el resultado; la descripción termina, por ejemplo, en `· Espesor: 0,15`. El formulario explica la relación: unidad de destino / unidad de origen.
+- **Restar:** escribe un número negativo en **Elem. simil.** o **N.º de veces**. Dos negativos dan un resultado positivo. Las dimensiones físicas y las cantidades base directas siguen siendo positivas. Un total referenciado de cero sí es válido.
+
+Las filas referenciadas utilizan las mismas columnas y anchos. Al seleccionarlas, el grupo de dimensiones se identifica como **Referencia**, con **Valor ref.** y, solo si corresponde, **Factor**. Los resultados conservan sus columnas de metrado.
+
+Las referencias y sus factores se guardan en SQLite (formato 5) y copias JSON (formato 7), y admiten Ctrl+Z. Copiar partidas juntas enlaza sus copias entre sí; copiar solo el detalle conserva el origen. En otra obra, un origen no disponible queda pendiente, sin enlazarse automáticamente por nombre. Eliminar el origen deja el destino pendiente y deshacer recupera el enlace. Las referencias circulares se rechazan. Si cambian las unidades y la conversión ya no corresponde, vuelve a usar `/` para confirmar un nuevo factor.
+
 La interfaz usa Python y PySide6; Rust calcula las cantidades y totales mediante PyO3. Python conserva el catálogo de acero, resuelve la cantidad de ganchos y empalmes y entrega esas entradas al motor.
 
 Desde la carpeta principal del proyecto:
@@ -187,3 +233,12 @@ Desde la carpeta principal del proyecto:
 - `.venv\Scripts\python.exe -B app\tests\test_sheet.py` ejecuta las pruebas de la tabla y del guardado usando el motor real.
 - `.venv\Scripts\python.exe -B -m unittest discover -s app/tests -v` ejecuta también las pruebas de jerarquía, movimientos y portapapeles sin instalar herramientas adicionales.
 - `.venv\Scripts\python.exe -B app/tests/benchmark_storage.py` mide edición, deshacer, rehacer, apertura y guardado SQLite con 10 000 filas sintéticas en una carpeta temporal. No modifica obras reales. Los tiempos excluyen el repintado de la interfaz y dependen del equipo.
+- `.venv\Scripts\python.exe -B app/tests/benchmark_performance.py` mide además selección, cambio de partida, referencias y acero con la ventana renderizada fuera de pantalla. Usa 10 000 filas sintéticas y archivos temporales; incluye procesamiento de eventos Qt, no la latencia del monitor físico. Los tiempos son orientativos, no límites garantizados.
+
+### Rendimiento y conservación de datos
+
+Ctrl+A en la planilla selecciona únicamente las filas de la partida visible. Las acciones leen rangos de selección, sin construir una lista de todas las celdas ocultas de la obra.
+
+Al editar una celda, se recalcula su partida y las partidas que dependen de ella, incluidas referencias encadenadas. Los cambios de estructura reconstruyen las relaciones; Ctrl+Z mantiene los mismos resultados que un recálculo completo.
+
+Los catálogos de acero con valores idénticos comparten en memoria una copia validada que no se puede editar directamente. Esto reduce copias y validaciones al guardar o deshacer. El formulario sigue siendo editable: confirmar una actualización sustituye la copia correspondiente. Las obras existentes conservan sus valores hasta una actualización expresa del usuario. El formato SQLite permanece igual; esta optimización no reduce el número de registros guardados en disco.

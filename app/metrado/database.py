@@ -15,9 +15,10 @@ from metrado.identity import ensure_ids
 from metrado.sheet import read_project, validate_project
 from metrado.swelling import upgrade_legacy
 from metrado.steel_config import FIELDS
+from metrado.references import FIELDS as REFERENCE_FIELDS
 
 APPLICATION_ID = 0x4D455452  # METR
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 SQLITE_HEADER = b'SQLite format 3\x00'
 # Visible columns and steel-specific inputs are explicit, queryable SQL columns.
 INPUT_COLUMNS = ('code', 'description', 'unit', 'similar_elements', 'length',
@@ -65,7 +66,7 @@ def _check_schema(connection):
     if connection.execute('PRAGMA application_id').fetchone()[0] != APPLICATION_ID:
         raise ValueError('Este archivo no es una base de datos de Metrados.')
     version = connection.execute('PRAGMA user_version').fetchone()[0]
-    if version not in (1, 2, 3, SCHEMA_VERSION):
+    if version not in (1, 2, 3, 4, SCHEMA_VERSION):
         raise ValueError('Versión de base de datos no compatible. No se modificó el archivo.')
     return version
 
@@ -99,6 +100,29 @@ def _create_steel_tables(connection):
         node_id TEXT PRIMARY KEY NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
         count INTEGER NOT NULL CHECK(count IN (0, 1, 2)), override TEXT
     )''')
+
+
+def _create_references(connection):
+    # The source deliberately has no FK: deleting it leaves an explicit pending
+    # link, restored by Undo, instead of silently deleting the target quantity.
+    connection.execute('''CREATE TABLE detail_references (
+        node_id TEXT PRIMARY KEY NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+        source TEXT NOT NULL, label TEXT NOT NULL,
+        source_unit TEXT NOT NULL, target_unit TEXT NOT NULL,
+        factor_name TEXT NOT NULL, factor TEXT NOT NULL
+    )''')
+    connection.execute('CREATE INDEX reference_source ON detail_references(source)')
+
+
+def _sync_references(connection, rows):
+    desired = {row['id']: (row['id'], *(row['reference'][key] for key in REFERENCE_FIELDS))
+               for row in rows if 'reference' in row}
+    old = {r[0]: r for r in connection.execute('SELECT node_id, ' + ', '.join(REFERENCE_FIELDS) + ' FROM detail_references')}
+    deleted = [(key,) for key in old if key not in desired]
+    updates = [record for key, record in desired.items() if old.get(key) != record]
+    connection.executemany('DELETE FROM detail_references WHERE node_id=?', deleted)
+    connection.executemany('INSERT OR REPLACE INTO detail_references VALUES (?,?,?,?,?,?,?)', updates)
+    return bool(deleted or updates)
 
 
 def _sync_steel(connection, rows):
@@ -148,6 +172,7 @@ def _create_schema(connection):
     _create_swelling_table(connection)
     _create_detail_factors(connection)
     _create_steel_tables(connection)
+    _create_references(connection)
 
 
 def read_database(path):
@@ -195,7 +220,12 @@ def read_database(path):
                 if node_id not in by_id:
                     raise ValueError('Los ganchos contienen una referencia inválida.')
                 by_id[node_id]['steel_hooks'] = dict(count=count, override=override)
-        title, rows = validate_project(dict(version=6, title=project[0], rows=rows))
+        if version >= 5:
+            for node_id, *fields in connection.execute('SELECT node_id, ' + ', '.join(REFERENCE_FIELDS) + ' FROM detail_references'):
+                if node_id not in by_id:
+                    raise ValueError('Referencia asociada a un detalle inexistente.')
+                by_id[node_id]['reference'] = dict(zip(REFERENCE_FIELDS, fields))
+        title, rows = validate_project(dict(version=7, title=project[0], rows=rows))
         upgrade_legacy(rows)
         outline = Outline(rows, strict=True)
         if any(parent != (rows[index]['id'] if index is not None else None)
@@ -220,8 +250,8 @@ def write_database(path, title, rows, expected_revision=None):
     The expected revision detects another editor's save under the same write lock.
     Omit it only for an explicitly chosen Save As destination.
     """
-    normalized = materialize(rows)
-    validate_project(dict(version=6, title=title, rows=normalized))
+    normalized = materialize(rows, immutable_catalogs=True)
+    validate_project(dict(version=7, title=title, rows=normalized))
     upgrade_legacy(normalized)
     ensure_ids(normalized)
     outline = Outline(normalized, strict=True)
@@ -264,6 +294,8 @@ def write_database(path, title, rows, expected_revision=None):
                     _create_detail_factors(connection)
                 if version < 4:
                     _create_steel_tables(connection)
+                if version < 5:
+                    _create_references(connection)
                 connection.execute(f'PRAGMA user_version = {SCHEMA_VERSION}')
             old_swelling = {record[0]: record for record in connection.execute('SELECT item_id, enabled, percent, note FROM item_swelling')}
             old_factors = {record[0]: record for record in connection.execute('SELECT detail_id, block_id, factor, note FROM detail_swelling')}
@@ -289,7 +321,8 @@ def write_database(path, title, rows, expected_revision=None):
             connection.executemany('''INSERT INTO detail_swelling VALUES (?, ?, ?, ?)
                 ON CONFLICT(detail_id) DO UPDATE SET block_id=excluded.block_id, factor=excluded.factor, note=excluded.note''', changed_factors)
             changed_steel = _sync_steel(connection, normalized)
-            if deleted or updates or old_title != title or migrated or removed_swelling or changed_swelling or removed_factors or changed_factors or changed_steel:
+            changed_references = _sync_references(connection, normalized)
+            if deleted or updates or old_title != title or migrated or removed_swelling or changed_swelling or removed_factors or changed_factors or changed_steel or changed_references:
                 revision += 1
                 connection.execute('UPDATE project SET title=?, revision=? WHERE singleton=1', (title, revision))
             connection.commit()
