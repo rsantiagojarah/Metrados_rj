@@ -1,9 +1,10 @@
 from pathlib import Path
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
-    QFileDialog, QInputDialog, QLabel, QLineEdit, QMainWindow, QMessageBox,
-    QVBoxLayout, QWidget,
+    QApplication, QDialog, QFileDialog, QInputDialog, QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox,
+    QToolBar, QVBoxLayout, QWidget,
 )
 
 from metrado.grid import SheetModel, SheetView
@@ -13,6 +14,11 @@ from metrado.sheet import (
     example_rows, new_row, parent_item, read_project, subtree_end, write_project,
 )
 from metrado.steel import first_steel_item
+from metrado.hierarchy import (
+    MAX_ROWS, change_level, container, materialize, move_sibling, move_to, renumber,
+)
+from metrado.clipboard import ROW_MIME, cell_text, decode_rows, encode_rows, insert_rows, parse_tsv, tsv
+from metrado.organize import DestinationDialog
 
 
 class PlantillaWindow(QMainWindow):
@@ -31,7 +37,7 @@ class PlantillaWindow(QMainWindow):
         self.title_edit = QLineEdit("Ejemplo de planilla de metrado")
         self.title_edit.setPlaceholderText("Nombre de la obra o proyecto")
         header_toolbar(self, self.title_edit)
-        hint = QLabel("Acero: elige Diámetro con doble clic o F2 · Largo, gancho y empalme en metros · N.º de veces = cantidad de barras")
+        hint = QLabel("Organizar: Tab / Mayús+Tab en Ítem o Descripción · Alt+↑ / ↓ mueve el bloque · Clic derecho: más opciones · Ctrl+C / Ctrl+V")
         hint.setObjectName("sheetHint")
         hint.setWordWrap(True)
         layout.addWidget(hint)
@@ -50,12 +56,14 @@ class PlantillaWindow(QMainWindow):
         self._action(files, "Cargar ejemplo", self.load_example)
         files.addSeparator()
         edit = files
-        self._action(edit, "+ Capítulo", lambda: self.add_row("chapter"), "Alt+C")
+        self._action(edit, "+ Título", lambda: self.add_row("chapter"), "Alt+C")
+        self._action(edit, "+ Subtítulo", lambda: self.add_row("subtitle"), "Alt+S")
         self._action(edit, "+ Partida", lambda: self.add_row("item"), "Ctrl+Shift+N")
         self._action(edit, "+ Detalle", lambda: self.add_row("detail"), "Ctrl+Return")
         edit.addSeparator()
         self._action(edit, "Cantidad directa…", self.direct_quantity, "Ctrl+D")
         self._action(edit, "Eliminar fila…", self.remove_row, "Ctrl+Delete")
+        self._organize_actions()
         self.model.changed.connect(self._changed)
         self.title_edit.textEdited.connect(self._changed)
         self.table.selectionModel().currentChanged.connect(self._selection_status)
@@ -83,6 +91,21 @@ class PlantillaWindow(QMainWindow):
 
     def _selection_status(self, *args):
         index = self.table.currentIndex()
+        if hasattr(self, 'row_actions'):
+            valid = index.isValid()
+            row = index.row()
+            outline = self.model.outline
+            previous = outline.previous[row] if valid else None
+            structural = valid and self.model.rows[row]['kind'] != 'detail'
+            enabled = {
+                'up': valid and previous is not None,
+                'down': valid and outline.following[row] is not None,
+                'indent': structural and previous is not None and self.model.rows[previous]['kind'] == 'chapter',
+                'outdent': structural and outline.parents[row] is not None,
+                'move': valid, 'copy': valid, 'copy_rows': valid,
+            }
+            for key, active in enabled.items():
+                self.row_actions[key].setEnabled(active)
         if index.isValid() and index.row() in self.model.errors:
             message = self.model.errors[index.row()]
         else:
@@ -96,30 +119,163 @@ class PlantillaWindow(QMainWindow):
         self.table.scrollTo(index)
         self.table.setFocus()
 
+    def _organize_actions(self):
+        toolbar = QToolBar('Organizar', self)
+        toolbar.setObjectName('organizeStrip')
+        toolbar.setMovable(False)
+        self.addToolBarBreak()
+        self.addToolBar(toolbar)
+        self.organize_menu = self.menuBar().addMenu('Organizar')
+        self.edit_menu = self.menuBar().addMenu('Edición')
+        self.row_actions = {}
+        definitions = (
+            ('up', '↑ Subir', lambda: self.move_row(-1), 'Alt+Up'),
+            ('down', '↓ Bajar', lambda: self.move_row(1), 'Alt+Down'),
+            ('indent', '→ Aumentar nivel', lambda: self.indent_row(True), 'Alt+Right'),
+            ('outdent', '← Reducir nivel', lambda: self.indent_row(False), 'Alt+Left'),
+            ('move', 'Mover a…', self.choose_destination, 'Ctrl+M'),
+        )
+        for key, text, callback, shortcut in definitions:
+            action = QAction(text, self.table)
+            action.setShortcut(shortcut)
+            action.setShortcutContext(Qt.WidgetShortcut)
+            action.setToolTip(text + ' (' + shortcut + ') · Incluye todos los descendientes')
+            action.triggered.connect(lambda checked=False, fn=callback: fn())
+            self.table.addAction(action)
+            self.organize_menu.addAction(action)
+            toolbar.addAction(action)
+            self.row_actions[key] = action
+        toolbar.addSeparator()
+        for key, text, callback, shortcut in (
+            ('copy', 'Copiar', self.copy_selection, 'Ctrl+C'),
+            ('paste', 'Pegar', self.paste_selection, 'Ctrl+V'),
+            ('copy_rows', 'Copiar bloque con descendientes', lambda: self.copy_selection(True), 'Ctrl+Shift+C'),
+            ('paste_rows', 'Pegar bloque', self.paste_selection, 'Ctrl+Shift+V'),
+        ):
+            action = QAction(text, self.table)
+            if shortcut:
+                action.setShortcut(shortcut)
+                action.setShortcutContext(Qt.WidgetShortcut)
+                self.table.addAction(action)
+            action.setToolTip(text + (f' ({shortcut})' if shortcut else ''))
+            if key in ('copy', 'paste'):
+                toolbar.addAction(action)
+            action.triggered.connect(lambda checked=False, fn=callback: fn())
+            self.edit_menu.addAction(action)
+            self.row_actions[key] = action
+        self.table.levelRequested.connect(self.indent_row)
+        self.table.clipboardRequested.connect(lambda op: self.copy_selection() if op == 'copy' else self.paste_selection())
+        self.table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self._context_menu)
+
+    def _context_menu(self, point):
+        index = self.table.indexAt(point)
+        if index.isValid() and not self.table.selectionModel().isSelected(index):
+            self._select(index.row(), index.column())
+        menu = QMenu(self)
+        for text, kind in (('Nuevo título', 'chapter'), ('Nuevo subtítulo', 'subtitle'),
+                           ('Nueva partida', 'item'), ('Nuevo detalle', 'detail')):
+            menu.addAction(text, lambda checked=False, k=kind: self.add_row(k))
+        menu.addSeparator()
+        menu.addActions(list(self.row_actions.values()))
+        menu.addSeparator()
+        menu.addAction('Eliminar bloque…', self.remove_row)
+        menu.exec(self.table.viewport().mapToGlobal(point))
+
+    def _apply_structure(self, operation, *args):
+        index = self.table.currentIndex()
+        if not index.isValid():
+            return
+        try:
+            rows, position = operation(self.model.rows, index.row(), *args)
+        except ValueError as error:
+            self.statusBar().showMessage(str(error), 7000)
+            return
+        self.model.replace(rows)
+        self._select(position, index.column())
+
+    def move_row(self, direction):
+        self._apply_structure(move_sibling, direction)
+
+    def indent_row(self, inward):
+        self._apply_structure(change_level, inward)
+
+    def move_to_parent(self, destination):
+        self._apply_structure(move_to, destination)
+
+    def choose_destination(self):
+        source = self.table.currentIndex().row()
+        if source < 0:
+            return
+        dialog = DestinationDialog(self.model.rows, source, self.model.outline, self)
+        if dialog.exec() == QDialog.Accepted:
+            self.move_to_parent(dialog.destination)
+        dialog.deleteLater()
+
+    def copy_selection(self, whole_rows=False):
+        selection = self.table.selectionModel()
+        indexes = selection.selectedIndexes()
+        if not indexes:
+            return
+        try:
+            if whole_rows or selection.selectedRows():
+                mime = encode_rows(self.model, {index.row() for index in indexes})
+                QApplication.clipboard().setMimeData(mime)
+                self.statusBar().showMessage('Bloque copiado con sus descendientes. Selecciona un destino y pulsa Ctrl+V.', 6000)
+            else:
+                top, bottom = min(i.row() for i in indexes), max(i.row() for i in indexes)
+                left, right = min(i.column() for i in indexes), max(i.column() for i in indexes)
+                matrix = [[cell_text(self.model, r, c) for c in range(left, right + 1)] for r in range(top, bottom + 1)]
+                QApplication.clipboard().setText(tsv(matrix))
+                self.statusBar().showMessage('Celdas copiadas. Para copiar un bloque completo, usa Ctrl+Mayús+C.', 6000)
+        except ValueError as error:
+            QMessageBox.warning(self, 'No se pudo copiar', str(error))
+
+    def paste_selection(self):
+        mime = QApplication.clipboard().mimeData()
+        if mime is None:
+            return
+        current = self.table.currentIndex()
+        try:
+            if mime.hasFormat(ROW_MIME):
+                block = decode_rows(mime.data(ROW_MIME))
+                rows, position = insert_rows(self.model.rows, current.row(), block)
+                self.model.replace(rows)
+                self._select(position)
+            elif mime.hasText() and current.isValid():
+                self.model.paste_cells(current.row(), current.column(), parse_tsv(mime.text()))
+                self._select(current.row(), current.column())
+        except ValueError as error:
+            QMessageBox.warning(self, 'No se pudo pegar', str(error))
+
     def add_row(self, kind):
-        rows = self.model.rows.copy()
+        rows = materialize(self.model.rows)
+        if len(rows) >= MAX_ROWS:
+            self.statusBar().showMessage('La planilla admite hasta 10 000 filas.', 5000)
+            return
+        outline = self.model.outline
         selected = self.table.currentIndex().row()
         if kind == "chapter":
-            position = len(rows)
-            used = {r["cells"][0] for r in rows}
-            number = 1
-            while f"{number:02d}" in used:
-                number += 1
-            row = new_row(kind, f"{number:02d}", "NUEVO CAPÍTULO")
+            root = selected
+            while root >= 0 and outline.parents[root] is not None:
+                root = outline.parents[root]
+            position = outline.ends[root] if root >= 0 else len(rows)
+            row = new_row(kind, description="NUEVO TÍTULO", level=0)
+        elif kind == 'subtitle':
+            parent = container(rows, selected, outline)
+            if parent is None:
+                self.statusBar().showMessage('Selecciona un título para crear un subtítulo dentro de él.', 5000)
+                return
+            position = outline.ends[parent]
+            row = new_row('chapter', description='NUEVO SUBTÍTULO',
+                          level=outline.levels[parent] + 1)
         elif kind == "item":
-            position = subtree_end(rows, selected) if selected >= 0 else len(rows)
+            parent = container(rows, selected, outline)
+            position = outline.ends[selected] if selected >= 0 else len(rows)
             if selected >= 0 and rows[selected]["kind"] == "detail":
-                position = subtree_end(rows, parent_item(rows, selected))
-            prefix = "01"
-            for previous in reversed(rows[:position]):
-                if previous["kind"] == "chapter":
-                    prefix = previous["cells"][0] or "01"
-                    break
-            used = {r["cells"][0] for r in rows}
-            number = 1
-            while f"{prefix}.{number:02d}" in used:
-                number += 1
-            row = new_row(kind, f"{prefix}.{number:02d}", "NUEVA PARTIDA")
+                position = outline.ends[outline.parents[selected]]
+            row = new_row(kind, description="NUEVA PARTIDA",
+                          level=outline.levels[parent] + 1 if parent is not None else 0)
         else:
             selected = selected if selected >= 0 else len(rows) - 1
             parent = parent_item(rows, selected) if selected >= 0 else None
@@ -127,8 +283,14 @@ class PlantillaWindow(QMainWindow):
                 QMessageBox.information(self, "Agregar detalle", "Selecciona primero una partida o uno de sus detalles.")
                 return
             position = selected + 1
-            row = new_row(kind, description="Nuevo detalle", unit=rows[parent]["cells"][2])
+            row = new_row(kind, description="Nuevo detalle", unit=rows[parent]["cells"][2],
+                          level=outline.levels[parent] + 1)
         rows.insert(position, row)
+        try:
+            rows = renumber(rows)
+        except ValueError as error:
+            self.statusBar().showMessage(str(error), 5000)
+            return
         self.model.replace(rows)
         self._select(position)
         self.table.edit(self.model.index(position, 1))
@@ -145,7 +307,7 @@ class PlantillaWindow(QMainWindow):
         if answer != QMessageBox.Yes:
             return
         rows = self.model.rows[:index] + self.model.rows[end:]
-        self.model.replace(rows)
+        self.model.replace(renumber(rows))
         if rows:
             self._select(min(index, len(rows) - 1))
 

@@ -5,6 +5,8 @@ import os
 from pathlib import Path
 import tempfile
 
+from metrado.hierarchy import Outline
+
 UNITS = ("m", "m2", "m3", "kg", "und", "mes", "vje", "glb")
 RESULT_COLUMN = {"m": 8, "m2": 9, "m3": 10, "kg": 12,
                  "und": 12, "mes": 12, "vje": 12, "glb": 12}
@@ -14,13 +16,16 @@ DIMENSIONS = {"m": ((4, "longitud"),),
               "kg": ((4, "largo"), (5, "gancho"), (6, "empalme"), (7, "diametro"), (10, "barras"))}
 
 
-def new_row(kind, code="", description="", unit="m"):
+def new_row(kind, code="", description="", unit="m", level=None):
     cells = [""] * 14
     cells[0:3] = [code, description, unit if kind != "chapter" else ""]
     if kind == "detail":
         cells[3] = "1"
         cells[7 if unit != "kg" else 9] = "1"
-    return {"kind": kind, "cells": cells, "direct": ""}
+    row = {"kind": kind, "cells": cells, "direct": ""}
+    if level is not None:
+        row['level'] = level
+    return row
 
 
 def example_rows():
@@ -88,16 +93,7 @@ def parent_item(rows, index):
 
 
 def subtree_end(rows, index):
-    kind = rows[index]["kind"]
-    end = index + 1
-    while end < len(rows):
-        next_kind = rows[end]["kind"]
-        if kind == "detail" or next_kind == "chapter":
-            break
-        if kind == "item" and next_kind == "item":
-            break
-        end += 1
-    return end
+    return Outline(rows).ends[index]
 
 
 def calculate(rows, engine):
@@ -172,7 +168,11 @@ def read_project(path):
     if Path(path).stat().st_size > 10_000_000:
         raise ValueError("El archivo supera el límite de 10 MB.")
     data = json.loads(Path(path).read_text(encoding="utf-8"))
-    if not isinstance(data, dict) or data.get("version") != 1:
+    return validate_project(data)
+
+
+def validate_project(data):
+    if not isinstance(data, dict) or type(data.get('version')) is not int or data.get("version") not in (1, 2):
         raise ValueError("Formato de planilla no reconocido.")
     if not isinstance(data.get("title"), str) or not isinstance(data.get("rows"), list):
         raise ValueError("La planilla no contiene un título y filas válidos.")
@@ -187,6 +187,8 @@ def read_project(path):
             raise ValueError("Cada fila debe contener 14 columnas de texto.")
         if not isinstance(row.get("direct"), str):
             raise ValueError("Cantidad directa inválida.")
+        if data['version'] == 2 and 'level' not in row:
+            raise ValueError('Falta el nivel de una fila.')
         if row["kind"] == "chapter":
             current = None
         elif row["kind"] == "item":
@@ -196,8 +198,11 @@ def read_project(path):
         elif current is None:
             raise ValueError("Hay detalles sin una partida asociada.")
         else:
+            if data['version'] == 2 and cells[2] != current:
+                raise ValueError('El detalle y su partida deben tener la misma unidad.')
             cells[2] = current
         clear_results(cells, current or cells[2])
+    Outline(data['rows'], strict=True)
     return data["title"], data["rows"]
 
 
@@ -211,7 +216,11 @@ def clear_results(cells, unit=""):
 
 def write_project(path, title, rows):
     """Atomic replacement keeps an existing project intact if writing fails."""
-    data = {"version": 1, "title": title, "rows": deepcopy(rows)}
+    from metrado.hierarchy import materialize
+    hierarchical = any('level' in row for row in rows)
+    data = {"version": 2 if hierarchical else 1, "title": title,
+            "rows": materialize(rows) if hierarchical else deepcopy(rows)}
+    validate_project(data)
     for row in data["rows"]:
         clear_results(row["cells"], row["cells"][2])
     path = Path(path)

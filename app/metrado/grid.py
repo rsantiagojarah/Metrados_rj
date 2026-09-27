@@ -1,6 +1,8 @@
 """Editable desktop grid with the reference sheet's two-level header."""
-from PySide6.QtCore import QAbstractTableModel, QModelIndex, QRect, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QPainter, QPen
+from copy import deepcopy
+
+from PySide6.QtCore import QAbstractTableModel, QEvent, QModelIndex, QRect, Qt, Signal
+from PySide6.QtGui import QColor, QFont, QKeySequence, QPainter, QPen
 from PySide6.QtWidgets import QComboBox, QHeaderView, QStyledItemDelegate, QTableView
 
 from metrado.sheet import DIMENSIONS, UNITS, calculate
@@ -8,6 +10,7 @@ from metrado.steel import (
     DIAMETERS, STEEL_LABELS, apply_bar_spec, header_mode, set_bar_diameter,
 )
 from metrado import theme
+from metrado.hierarchy import Outline
 
 LABELS = ("ÍTEM", "DESCRIPCIÓN", "Und", "Elem.\nsimil.", "Largo", "Ancho", "Alto",
           "N.º de\nveces", "Lon.", "Área", "Vol.", "Kg.", "Und.", "Total")
@@ -52,6 +55,7 @@ class SheetModel(QAbstractTableModel):
         self._refresh_summary()
 
     def _rebuild_structure(self):
+        self.outline = Outline(self.rows)
         self._owners, self._ends = [], {}
         self._items = self._details = 0
         owner = None
@@ -142,6 +146,15 @@ class SheetModel(QAbstractTableModel):
                 return row["cells"][7]
             if c == 7:
                 times = self.values.get((r, 7))
+                if getattr(self, '_batching', False):
+                    if row['direct']:
+                        return row['cells'][9]
+                    try:
+                        times = self.engine.ask_sheet_quantity('und', [],
+                            float(row['cells'][10].replace(',', '.')),
+                            float(row['cells'][9].replace(',', '.') or '1'), None)
+                    except (ValueError, OverflowError):
+                        times = None
                 if times is None:
                     return row["cells"][9] if row["direct"] else row["cells"][10]
                 return f"{times:g}"
@@ -165,8 +178,8 @@ class SheetModel(QAbstractTableModel):
             return "Pendiente"
         if c == 4 and row["direct"]:
             return "ÁREA" if row["cells"][2] == "m2" else "DIRECTO"
-        if c == 1 and kind == "detail":
-            return "      " + row["cells"][c]
+        if c == 1:
+            return "   " * self.outline.levels[r] + row["cells"][c]
         return row["cells"][c]
 
     def setData(self, index, value, role=Qt.EditRole):
@@ -223,6 +236,8 @@ class SheetModel(QAbstractTableModel):
         return True
 
     def recalculate(self, row=None):
+        if getattr(self, '_batching', False):
+            return
         if row is None:
             self.values, self.errors = calculate(self.rows, self.engine)
             self._rebuild_structure()
@@ -247,6 +262,33 @@ class SheetModel(QAbstractTableModel):
         if end > start:
             self.dataChanged.emit(self.index(start, 0), self.index(end - 1, 13))
         self.changed.emit()
+
+    def paste_cells(self, start_row, start_column, matrix):
+        """Validate on a private copy, then calculate and publish once."""
+        if not matrix:
+            return False
+        if start_row < 0 or start_column < 0 or start_row + len(matrix) > len(self.rows) or start_column + len(matrix[0]) > 14:
+            raise ValueError('El bloque no cabe. Agrega primero las filas necesarias.')
+        staged = SheetModel(self.engine, deepcopy(self.rows))
+        staged._batching = True
+        changed = editable = False
+        for dr, cells in enumerate(matrix):
+            for dc, value in enumerate(cells):
+                r, c = start_row + dr, start_column + dc
+                if not staged.editable(r, c):
+                    continue
+                editable = True
+                index = staged.index(r, c)
+                if str(staged.data(index, Qt.EditRole) or '') == value.strip():
+                    continue
+                if not staged.setData(index, value):
+                    raise ValueError(f'Valor no admitido en la fila {r + 1}, columna {c + 1}. No se pegó ningún dato.')
+                changed = True
+        if not editable:
+            raise ValueError('Selecciona celdas editables; los resultados se calculan automáticamente.')
+        if changed:
+            self.replace(staged.rows)
+        return changed
 
     def replace(self, rows):
         self.beginResetModel()
@@ -358,6 +400,8 @@ class SheetDelegate(QStyledItemDelegate):
 
 
 class SheetView(QTableView):
+    levelRequested = Signal(bool)
+    clipboardRequested = Signal(str)
     def __init__(self, model):
         super().__init__()
         self.setModel(model)
@@ -366,7 +410,7 @@ class SheetView(QTableView):
         self.setShowGrid(False)
         self.setAlternatingRowColors(False)
         self.setWordWrap(False)
-        self.setSelectionMode(QTableView.SingleSelection)
+        self.setSelectionMode(QTableView.ContiguousSelection)
         self.setEditTriggers(QTableView.DoubleClicked | QTableView.EditKeyPressed | QTableView.AnyKeyPressed)
         self.setHorizontalScrollMode(QTableView.ScrollPerPixel)
         self.verticalHeader().setDefaultSectionSize(28)
@@ -378,6 +422,25 @@ class SheetView(QTableView):
         self.model().modelReset.connect(lambda: self.sync_header(self.currentIndex()))
         self.model().changed.connect(lambda: self.sync_header(self.currentIndex()))
         self.sync_header(self.currentIndex())
+
+    def event(self, event):
+        # Tab belongs to the outline only on Ítem/Descripción, outside a cell editor.
+        if event.type() == QEvent.KeyPress and self.state() != QTableView.EditingState and self.currentIndex().column() in (0, 1):
+            if event.key() in (Qt.Key_Tab, Qt.Key_Backtab) and not event.modifiers() & (Qt.ControlModifier | Qt.AltModifier):
+                inward = event.key() == Qt.Key_Tab and not event.modifiers() & Qt.ShiftModifier
+                self.levelRequested.emit(bool(inward))
+                event.accept()
+                return True
+        return super().event(event)
+
+    def keyPressEvent(self, event):
+        if event.matches(QKeySequence.Copy):
+            self.clipboardRequested.emit('copy')
+        elif event.matches(QKeySequence.Paste):
+            self.clipboardRequested.emit('paste')
+        else:
+            return super().keyPressEvent(event)
+        event.accept()
 
     def sync_header(self, current, _previous=None):
         row = current.row() if current.isValid() else -1

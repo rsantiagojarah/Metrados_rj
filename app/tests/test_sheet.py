@@ -98,7 +98,7 @@ class SheetTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "broken.json"
             cases = [
-                {"version": 2, "title": "", "rows": []},
+                {"version": 99, "title": "", "rows": []},
                 {"version": 1, "title": "", "rows": [new_row("detail")]},
                 {"version": 1, "title": "", "rows": [{"kind": "item", "cells": []}]},
                 {"version": 1, "title": "", "rows": [new_row("item", unit="invalid")]},
