@@ -318,20 +318,21 @@ class WindowTests(unittest.TestCase):
     def test_example_opens_on_steel_partida(self):
         self.assertEqual(self.window.table.horizontalHeader().mode, "steel")
         self.assertEqual(self.window.table.rowHeight(14), self.window.table.rowHeight(15))
-        self.assertEqual(self.window.model.headerData(5, Qt.Horizontal), "gancho")
+        self.assertEqual(self.window.model.headerData(5, Qt.Horizontal), "Gancho\ninicial")
+        self.assertEqual(self.window.model.headerData(6, Qt.Horizontal), "Empalme")
+        self.assertEqual(self.window.model.headerData(9, Qt.Horizontal), "Diámetro")
         self.assertEqual(self.window.model.headerData(10, Qt.Horizontal), "kg/m")
         self.assertEqual(self.window.model.headerData(11, Qt.Horizontal), "Kg.")
 
     def test_header_follows_selection_without_local_headers(self):
         from metrado.grid import WIDTHS
-        from metrado.steel import STEEL_WIDTHS
         total = self.window.model.values[(14, 13)]
-        for row, mode, widths in ((4, "standard", WIDTHS), (14, "steel", STEEL_WIDTHS),
-                                  (15, "steel", STEEL_WIDTHS), (13, "standard", WIDTHS)):
+        for row, mode in ((4, "standard"), (14, "steel"),
+                          (15, "steel"), (13, "standard")):
             self.window._select(row)
             APP.processEvents()
             self.assertEqual(self.window.table.horizontalHeader().mode, mode)
-            self.assertEqual([self.window.table.columnWidth(c) for c in range(14)], list(widths))
+            self.assertEqual([self.window.table.columnWidth(c) for c in range(14)], list(WIDTHS))
             self.assertEqual(self.window.table.rowHeight(14), 28)
             self.assertEqual(self.window.table.rowHeight(15), 28)
         self.assertEqual(self.window.model.headerData(5, Qt.Horizontal), "Ancho")

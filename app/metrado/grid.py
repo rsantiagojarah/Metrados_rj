@@ -5,7 +5,7 @@ from PySide6.QtWidgets import QComboBox, QHeaderView, QStyledItemDelegate, QTabl
 
 from metrado.sheet import DIMENSIONS, UNITS, calculate
 from metrado.steel import (
-    DIAMETERS, STEEL_LABELS, STEEL_WIDTHS, apply_bar_spec, header_mode, set_bar_diameter,
+    DIAMETERS, STEEL_LABELS, apply_bar_spec, header_mode, set_bar_diameter,
 )
 from metrado import theme
 
@@ -387,6 +387,4 @@ class SheetView(QTableView):
         self.horizontalHeader().set_mode(mode)
         self.model().header_labels = STEEL_LABELS if mode == "steel" else LABELS
         self.model().headerDataChanged.emit(Qt.Horizontal, 0, 13)
-        for column, width in enumerate(STEEL_WIDTHS if mode == "steel" else WIDTHS):
-            self.setColumnWidth(column, width)
-        # Qt repaints selection changes and resized columns only where needed.
+        # Column widths remain fixed when switching between standard and steel headers.

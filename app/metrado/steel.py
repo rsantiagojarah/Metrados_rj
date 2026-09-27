@@ -4,7 +4,7 @@ import re
 from metrado.sheet import parent_item
 
 DIAMETERS = ("6mm", "8mm", "3/8\"", "12mm", "1/2\"", "5/8\"", "3/4\"", "1\"", "1 3/8\"")
-STEEL_LABELS = ("ÍTEM", "DESCRIPCIÓN", "Und", "Elem.\nsimil.", "Largo", "gancho", "empalme",
+STEEL_LABELS = ("ÍTEM", "DESCRIPCIÓN", "Und", "Elem.\nsimil.", "Largo", "Gancho\ninicial", "Empalme",
                 "N.º de\nveces", "Lon.", "Diámetro", "kg/m", "Kg.", "", "Total")
 STEEL_WIDTHS = (88, 490, 38, 38, 56, 56, 60, 44, 72, 80, 56, 72, 44, 80)
 BAR_SPEC = re.compile(
