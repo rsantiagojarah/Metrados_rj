@@ -4,7 +4,7 @@ from PySide6.QtWidgets import (
     QDialog, QDialogButtonBox, QLabel, QLineEdit, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
 )
 
-from metrado.hierarchy import can_parent
+from metrado.hierarchy import MEASUREMENT_KINDS, can_parent
 
 
 class DestinationDialog(QDialog):
@@ -23,7 +23,7 @@ class DestinationDialog(QDialog):
         layout.addWidget(self.tree)
         root = QTreeWidgetItem(self.tree, ['Nivel principal'])
         root.setData(0, Qt.UserRole, -1)
-        if rows[source]['kind'] == 'detail':
+        if rows[source]['kind'] in MEASUREMENT_KINDS:
             root.setFlags(root.flags() & ~Qt.ItemIsSelectable)
         self.entries = [root]
         nodes = {}
@@ -31,7 +31,7 @@ class DestinationDialog(QDialog):
             if source <= index < outline.ends[source] or row['kind'] == 'detail':
                 continue
             allowed = can_parent(rows, source, index, outline)
-            if row['kind'] == 'item' and not allowed:
+            if row['kind'] in ('item', 'detail_group') and not allowed:
                 continue
             owner = nodes.get(outline.parents[index], root)
             item = QTreeWidgetItem(owner, [f"{row['cells'][0]}  {row['cells'][1]}"])

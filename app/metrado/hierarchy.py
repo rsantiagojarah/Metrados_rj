@@ -3,11 +3,13 @@ from copy import deepcopy
 
 MAX_ROWS = 10000
 MAX_LEVEL = 32
+MEASUREMENT_KINDS = ('detail', 'detail_group')
 
 
 class Outline:
     def __init__(self, rows, strict=False):
         self.parents, self.levels, self.ends = [], [], [len(rows)] * len(rows)
+        self.owners = []
         self.previous, self.following = [], [None] * len(rows)
         last_child = {}
         stack = []
@@ -16,22 +18,25 @@ class Outline:
             kind = row['kind']
             default = (0 if kind == 'chapter' else
                        self.levels[chapter] + 1 if kind == 'item' and chapter is not None else
-                       self.levels[item] + 1 if kind == 'detail' and item is not None else 0)
+                       self.levels[item] + 1 if kind in MEASUREMENT_KINDS and item is not None else 0)
             level = row.get('level', default)
             if type(level) is not int or not 0 <= level <= MAX_LEVEL:
                 raise ValueError('Nivel de jerarquía inválido.')
             while stack and self.levels[stack[-1]] >= level:
                 self.ends[stack.pop()] = i
             parent = stack[-1] if stack else None
+            owner = i if kind == 'item' else (
+                self.owners[parent] if parent is not None and kind in MEASUREMENT_KINDS else None)
             if strict:
                 expected = 0 if parent is None else self.levels[parent] + 1
                 parent_kind = rows[parent]['kind'] if parent is not None else None
-                if level != expected or (kind == 'detail' and parent_kind != 'item') or (
-                        kind != 'detail' and parent_kind not in (None, 'chapter')):
-                    raise ValueError('Jerarquía inválida: los detalles pertenecen a partidas; los títulos agrupan subtítulos y partidas.')
-                if kind == 'detail' and row['cells'][2] != rows[parent]['cells'][2]:
+                allowed = ('item', 'detail_group') if kind in MEASUREMENT_KINDS else (None, 'chapter')
+                if level != expected or parent_kind not in allowed:
+                    raise ValueError('Jerarquía inválida: los detalles y sus títulos deben estar dentro de una partida.')
+                if kind in MEASUREMENT_KINDS and (owner is None or row['cells'][2] != rows[owner]['cells'][2]):
                     raise ValueError('El detalle y su partida deben tener la misma unidad.')
             self.parents.append(parent)
+            self.owners.append(owner)
             self.levels.append(level)
             previous = last_child.get(parent)
             self.previous.append(previous)
@@ -69,7 +74,7 @@ def renumber(rows):
     result, counters = [], {}
     for index, original in enumerate(rows):
         row = dict(original, cells=list(original['cells']))
-        if row['kind'] == 'detail':
+        if row['kind'] in MEASUREMENT_KINDS:
             row['cells'][0] = ''
         else:
             parent = outline.parents[index]
@@ -95,18 +100,18 @@ def can_parent(rows, index, destination, outline=None):
     outline = outline or Outline(rows)
     kind = rows[index]['kind']
     if destination is None:
-        return kind != 'detail'
+        return kind not in MEASUREMENT_KINDS
     if not 0 <= destination < len(rows) or index <= destination < outline.ends[index]:
         return False
-    if kind == 'detail':
-        return rows[destination]['kind'] == 'item' and rows[destination]['cells'][2] == rows[index]['cells'][2]
+    if kind in MEASUREMENT_KINDS:
+        return rows[destination]['kind'] in ('item', 'detail_group') and rows[destination]['cells'][2] == rows[index]['cells'][2]
     return rows[destination]['kind'] == 'chapter'
 
 
 def move_to(rows, index, destination):
     outline = Outline(rows, strict=True)
     if not can_parent(rows, index, destination, outline):
-        raise ValueError('Destino incompatible. Un detalle solo se traslada a otra partida con la misma unidad.')
+        raise ValueError('Destino incompatible. Los detalles y sus títulos solo se trasladan a partidas o grupos de la misma unidad.')
     result = materialize(rows)
     end = outline.ends[index]
     block = result[index:end]
@@ -143,17 +148,19 @@ def move_sibling(rows, index, direction):
 
 def change_level(rows, index, inward):
     outline = Outline(rows, strict=True)
-    if rows[index]['kind'] == 'detail':
-        raise ValueError('Los detalles permanecen dentro de una partida. Usa «Mover a…» para trasladarlos.')
+    measurement = rows[index]['kind'] in MEASUREMENT_KINDS
     if inward:
         siblings = outline.siblings(index)
         offset = siblings.index(index)
-        if not offset or rows[siblings[offset - 1]]['kind'] != 'chapter':
+        expected = 'detail_group' if measurement else 'chapter'
+        if not offset or rows[siblings[offset - 1]]['kind'] != expected:
             raise ValueError('Para aumentar el nivel, coloca la fila después de un título o subtítulo del mismo nivel.')
         return move_to(rows, index, siblings[offset - 1])
     parent = outline.parents[index]
     if parent is None:
         raise ValueError('La fila ya está en el nivel principal.')
+    if measurement and rows[parent]['kind'] == 'item':
+        raise ValueError('Los detalles y sus títulos deben permanecer dentro de la partida.')
     result = materialize(rows)
     end = outline.ends[index]
     block = result[index:end]

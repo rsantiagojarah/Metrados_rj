@@ -2,15 +2,18 @@
 from copy import deepcopy
 
 from PySide6.QtCore import QAbstractTableModel, QEvent, QModelIndex, QRect, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QKeySequence, QPainter, QPen
-from PySide6.QtWidgets import QComboBox, QHeaderView, QStyledItemDelegate, QTableView
+from PySide6.QtGui import QColor, QFont, QKeySequence, QPainter, QPen, QUndoStack
+from PySide6.QtWidgets import QApplication, QAbstractItemDelegate, QComboBox, QHeaderView, QStyledItemDelegate, QTableView
 
 from metrado.sheet import DIMENSIONS, UNITS, calculate
 from metrado.steel import (
-    DIAMETERS, STEEL_LABELS, apply_bar_spec, header_mode, set_bar_diameter,
+    DIAMETERS, STEEL_LABELS, description_base, edit_description, header_mode,
+    set_bar_diameter, sync_description,
 )
 from metrado import theme
 from metrado.hierarchy import Outline
+from metrado.identity import ensure_ids
+from metrado.history import RowEdit, RowStructure
 
 LABELS = ("ÍTEM", "DESCRIPCIÓN", "Und", "Elem.\nsimil.", "Largo", "Ancho", "Alto",
           "N.º de\nveces", "Lon.", "Área", "Vol.", "Kg.", "Und.", "Total")
@@ -32,9 +35,15 @@ EDIT_FLAGS = READ_FLAGS | Qt.ItemIsEditable
 
 class SheetModel(QAbstractTableModel):
     changed = Signal()
+    selectionRequested = Signal(int, int)
 
     def __init__(self, engine, rows):
         super().__init__()
+        ensure_ids(rows)
+        for row in rows:
+            sync_description(row, engine)
+        self.undo_stack = QUndoStack(self)
+        self.undo_stack.setUndoLimit(200)
         self.engine, self.rows = engine, rows
         self.values, self.errors = calculate(rows, engine)
         self._fonts = {}
@@ -61,7 +70,7 @@ class SheetModel(QAbstractTableModel):
         owner = None
         for index, row in enumerate(self.rows):
             kind = row["kind"]
-            if kind != "detail":
+            if kind not in ('detail', 'detail_group'):
                 if owner is not None:
                     self._ends[owner] = index
                 owner = index if kind == "item" else None
@@ -92,6 +101,8 @@ class SheetModel(QAbstractTableModel):
 
     def editable(self, row, column):
         kind = self.rows[row]["kind"]
+        if kind == 'detail_group':
+            return column == 1
         if kind == "chapter":
             return column in (0, 1)
         if kind == "item":
@@ -130,10 +141,12 @@ class SheetModel(QAbstractTableModel):
             return self._colors[theme.SURFACE]
         steel = kind == "detail" and row["cells"][2] == "kg"
         if role == TOOLTIP_ROLE:
+            if kind == 'detail_group':
+                return 'Título del desagregado. Agrupa mediciones; no aporta cantidad propia. Tab cambia el nivel.'
             if steel and c == 9:
                 return "Elige el diámetro con doble clic o F2. El peso se recalcula automáticamente."
             if steel and c == 1:
-                return row["cells"][1] + " · También puedes incluir el diámetro, por ejemplo: 53 Ø1\"."
+                return row['cells'][1] + ' · El sufijo cantidad y diámetro se mantiene al final. ? indica un dato pendiente.'
             if steel and c == 7:
                 return "Cantidad de barras. Incluye las repeticiones guardadas; editar aquí establece la cantidad total."
             if r in self.errors:
@@ -141,6 +154,8 @@ class SheetModel(QAbstractTableModel):
             if row["direct"]:
                 return "Cantidad base directa: " + row["direct"] + ". Se aplican elementos similares y n.º de veces."
             return row["cells"][c] or "Doble clic o F2 para editar."
+        if kind == 'detail_group' and c != 1:
+            return ''
         if steel:
             if c == 9:
                 return row["cells"][7]
@@ -183,6 +198,38 @@ class SheetModel(QAbstractTableModel):
         return row["cells"][c]
 
     def setData(self, index, value, role=Qt.EditRole):
+        if getattr(self, '_batching', False):
+            changed = self._set_data(index, value, role)
+            if changed:
+                self._sync_descriptions(index)
+            return changed
+        if role != Qt.EditRole or not index.isValid() or not self.editable(index.row(), index.column()):
+            return False
+        r, c = index.row(), index.column()
+        end = self._ends.get(r, r + 1) if c == 2 else r + 1
+        before = deepcopy(self.rows[r:end])
+        self._batching = True
+        try:
+            changed = self._set_data(index, value, role)
+            if changed:
+                self._sync_descriptions(index)
+            after = deepcopy(self.rows[r:end]) if changed else None
+            changed = changed and before != after
+        finally:
+            self.rows[r:end] = before
+            self._batching = False
+        if changed:
+            label = 'cambio de unidad' if c == 2 else 'edición de celda'
+            self.undo_stack.push(RowEdit(self, r, before, after, c, label))
+        return changed
+
+    def _sync_descriptions(self, index):
+        start = index.row()
+        end = self._ends.get(start, start + 1) if index.column() == 2 else start + 1
+        for row in self.rows[start:end]:
+            sync_description(row, self.engine)
+
+    def _set_data(self, index, value, role=Qt.EditRole):
         if role != Qt.EditRole or not index.isValid() or not self.editable(index.row(), index.column()):
             return False
         r, c = index.row(), index.column()
@@ -190,6 +237,12 @@ class SheetModel(QAbstractTableModel):
         if c == 2 and value not in UNITS:
             return False
         row = self.rows[r]
+        if row['kind'] == 'detail' and row['cells'][2] == 'kg' and c == 1:
+            if value == row['cells'][1]:
+                return False
+            edit_description(row, value)
+            self.recalculate(r)
+            return True
         if row["kind"] == "detail" and row["cells"][2] == "kg" and c == 9:
             if value == row["cells"][7]:
                 return False
@@ -215,13 +268,15 @@ class SheetModel(QAbstractTableModel):
         self.rows[r]["cells"][c] = value
         if c in (4, 5, 6, 7, 9, 10):
             self.rows[r]["direct"] = ""
-        if c == 1 and self.rows[r]["kind"] == "detail" and self.rows[r]["cells"][2] == "kg":
-            apply_bar_spec(self.rows[r]["cells"], value)
         if c == 2:
             for child in self.rows[r + 1:]:
-                if child["kind"] != "detail":
+                if child["kind"] not in ('detail', 'detail_group'):
                     break
+                if child['kind'] == 'detail' and child['cells'][2] == 'kg' and value != 'kg':
+                    child['cells'][1] = description_base(child['cells'][1])
                 child["cells"][2] = value
+                if child['kind'] == 'detail_group':
+                    continue
                 child["cells"][4:7] = [""] * 3
                 if value == "kg":
                     child["cells"][7] = ""
@@ -287,10 +342,21 @@ class SheetModel(QAbstractTableModel):
         if not editable:
             raise ValueError('Selecciona celdas editables; los resultados se calculan automáticamente.')
         if changed:
-            self.replace(staged.rows)
+            self.replace(staged.rows, 'pegado de celdas', (start_row, start_column), (start_row, start_column))
         return changed
 
-    def replace(self, rows):
+    def replace(self, rows, label=None, before_selection=None, after_selection=None):
+        ensure_ids(rows)
+        for row in rows:
+            sync_description(row, self.engine)
+        if label is not None:
+            if rows != self.rows:
+                self.undo_stack.push(RowStructure(self, rows, label, before_selection, after_selection))
+            return
+        self.undo_stack.clear()
+        self._replace(rows)
+
+    def _replace(self, rows):
         self.beginResetModel()
         self.rows = rows
         self.values, self.errors = calculate(rows, self.engine)
@@ -303,9 +369,13 @@ class SheetModel(QAbstractTableModel):
     def set_direct(self, index, value):
         if self.rows[index]["kind"] != "detail":
             return
-        self.rows[index]["direct"] = value
-        self.rows[index]["cells"][4:7] = [""] * 3
-        self.recalculate(index)
+        before = deepcopy(self.rows[index:index + 1])
+        after = deepcopy(before)
+        after[0]['direct'] = value
+        after[0]['cells'][4:7] = [''] * 3
+        sync_description(after[0], self.engine)
+        if before != after:
+            self.undo_stack.push(RowEdit(self, index, before, after, 4, 'cantidad directa'))
 
 
 class GroupedHeader(QHeaderView):
@@ -400,6 +470,17 @@ class SheetDelegate(QStyledItemDelegate):
 
 
 class SheetView(QTableView):
+    def commit_editor(self):
+        """Include an in-progress cell edit in Save, Close and structural actions."""
+        editor = QApplication.focusWidget()
+        if self.state() != QTableView.EditingState or editor is None:
+            return
+        while editor is not None and editor.parentWidget() is not self.viewport():
+            editor = editor.parentWidget()
+        if editor is not None:
+            self.commitData(editor)
+            self.closeEditor(editor, QAbstractItemDelegate.NoHint)
+
     levelRequested = Signal(bool)
     clipboardRequested = Signal(str)
     def __init__(self, model):

@@ -15,6 +15,8 @@ SPECS = {
     "+ Subtítulo": ("↳", "Subtítulo", 62),
     "+ Partida": ("+", "Partida", 54),
     "+ Detalle": ("↳", "Detalle", 54),
+    "+ Título de detalle": ("T", "Título detalle", 78),
+    "+ Subtítulo de detalle": ("↳", "Subt. detalle", 78),
     "Cantidad directa…": ("∑", "Cant. directa", 74),
     "Eliminar fila…": ("×", "Eliminar", 54),
 }

@@ -112,6 +112,10 @@ def calculate(rows, engine):
                     errors[current] = "El total está fuera del rango permitido."
 
     for index, row in enumerate(rows):
+        if row['kind'] == 'detail_group':
+            if current is None:
+                errors[index] = 'El título de detalle necesita una partida.'
+            continue
         if row["kind"] != "detail":
             finish()
             current = index if row["kind"] == "item" else None
@@ -172,7 +176,7 @@ def read_project(path):
 
 
 def validate_project(data):
-    if not isinstance(data, dict) or type(data.get('version')) is not int or data.get("version") not in (1, 2):
+    if not isinstance(data, dict) or type(data.get('version')) is not int or data.get("version") not in (1, 2, 3):
         raise ValueError("Formato de planilla no reconocido.")
     if not isinstance(data.get("title"), str) or not isinstance(data.get("rows"), list):
         raise ValueError("La planilla no contiene un título y filas válidos.")
@@ -180,14 +184,15 @@ def validate_project(data):
         raise ValueError("La planilla supera el límite de 10 000 filas.")
     current = None
     for row in data["rows"]:
-        if not isinstance(row, dict) or row.get("kind") not in ("chapter", "item", "detail"):
+        kinds = ('chapter', 'item', 'detail', 'detail_group') if data['version'] == 3 else ('chapter', 'item', 'detail')
+        if not isinstance(row, dict) or row.get("kind") not in kinds:
             raise ValueError("La planilla contiene un tipo de fila inválido.")
         cells = row.get("cells")
         if not isinstance(cells, list) or len(cells) != 14 or not all(isinstance(c, str) for c in cells):
             raise ValueError("Cada fila debe contener 14 columnas de texto.")
         if not isinstance(row.get("direct"), str):
             raise ValueError("Cantidad directa inválida.")
-        if data['version'] == 2 and 'level' not in row:
+        if data['version'] >= 2 and 'level' not in row:
             raise ValueError('Falta el nivel de una fila.')
         if row["kind"] == "chapter":
             current = None
@@ -198,9 +203,11 @@ def validate_project(data):
         elif current is None:
             raise ValueError("Hay detalles sin una partida asociada.")
         else:
-            if data['version'] == 2 and cells[2] != current:
+            if data['version'] >= 2 and cells[2] != current:
                 raise ValueError('El detalle y su partida deben tener la misma unidad.')
             cells[2] = current
+            if row['kind'] == 'detail_group' and (cells[0] or any(cells[3:]) or row['direct']):
+                raise ValueError('Un título de detalle solo contiene descripción; no admite código ni cantidades.')
         clear_results(cells, current or cells[2])
     Outline(data['rows'], strict=True)
     return data["title"], data["rows"]
@@ -217,8 +224,9 @@ def clear_results(cells, unit=""):
 def write_project(path, title, rows):
     """Atomic replacement keeps an existing project intact if writing fails."""
     from metrado.hierarchy import materialize
-    hierarchical = any('level' in row for row in rows)
-    data = {"version": 2 if hierarchical else 1, "title": title,
+    groups = any(row['kind'] == 'detail_group' for row in rows)
+    hierarchical = groups or any('level' in row for row in rows)
+    data = {"version": 3 if groups else 2 if hierarchical else 1, "title": title,
             "rows": materialize(rows) if hierarchical else deepcopy(rows)}
     validate_project(data)
     for row in data["rows"]:

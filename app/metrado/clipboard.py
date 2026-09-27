@@ -3,10 +3,11 @@ from copy import deepcopy
 import csv
 import io
 import json
+from uuid import uuid4
 
 from PySide6.QtCore import QMimeData, Qt
 
-from metrado.hierarchy import MAX_ROWS, Outline, materialize, renumber
+from metrado.hierarchy import MAX_ROWS, MEASUREMENT_KINDS, Outline, materialize, renumber
 from metrado.sheet import new_row, validate_project
 
 ROW_MIME = 'application/x-metrado-rows+json'
@@ -30,8 +31,8 @@ def encode_rows(model, selected):
     if not roots:
         raise ValueError('Selecciona una fila para copiar.')
     kinds = {rows[i]['kind'] for i in roots}
-    if 'detail' in kinds and len(kinds) > 1:
-        raise ValueError('Copia los detalles por separado de títulos y partidas.')
+    if kinds.intersection(MEASUREMENT_KINDS) and kinds.difference(MEASUREMENT_KINDS):
+        raise ValueError('Copia el desagregado por separado de los capítulos y partidas.')
     block, text = [], []
     for index in roots:
         for i in range(index, outline.ends[index]):
@@ -40,7 +41,8 @@ def encode_rows(model, selected):
             block.append(row)
             text.append([cell_text(model, i, c) for c in range(14)])
     mime = QMimeData()
-    mime.setData(ROW_MIME, json.dumps({'version': 1, 'rows': block}, ensure_ascii=False).encode('utf-8'))
+    version = 2 if any(row['kind'] == 'detail_group' for row in block) else 1
+    mime.setData(ROW_MIME, json.dumps({'version': version, 'rows': block}, ensure_ascii=False).encode('utf-8'))
     mime.setText(tsv(text))
     return mime
 
@@ -76,7 +78,7 @@ def decode_rows(raw):
         raise ValueError('El portapapeles supera el límite de 10 MB.')
     try:
         data = json.loads(bytes(raw).decode('utf-8'))
-        if not isinstance(data, dict) or data.get('version') != 1 or not isinstance(data.get('rows'), list):
+        if not isinstance(data, dict) or data.get('version') not in (1, 2) or not isinstance(data.get('rows'), list):
             raise ValueError('Formato de filas no reconocido.')
         rows = data['rows']
         if not rows or len(rows) > MAX_ROWS:
@@ -85,18 +87,19 @@ def decode_rows(raw):
             raise ValueError('Nivel de fila inválido en el portapapeles.')
         if rows[0]['level'] != 0:
             raise ValueError('El bloque copiado debe empezar en el nivel principal.')
-        if rows[0]['kind'] == 'detail':
-            if any(row['kind'] != 'detail' or row['level'] != 0 or
+        version = 3 if any(row['kind'] == 'detail_group' for row in rows) else 2
+        if rows[0]['kind'] in MEASUREMENT_KINDS:
+            if any(row['kind'] not in MEASUREMENT_KINDS or
                    row['cells'][2] != rows[0]['cells'][2] for row in rows):
                 raise ValueError('Los detalles copiados deben tener la misma unidad.')
             for row in rows:
-                row['level'] = 1
+                row['level'] += 1
             wrapper = [new_row('item', unit=rows[0]['cells'][2], level=0)] + rows
-            validate_project({'version': 2, 'title': '', 'rows': wrapper})
+            validate_project({'version': version, 'title': '', 'rows': wrapper})
             for row in rows:
-                row['level'] = 0
+                row['level'] -= 1
         else:
-            validate_project({'version': 2, 'title': '', 'rows': rows})
+            validate_project({'version': version, 'title': '', 'rows': rows})
         return rows
     except (KeyError, TypeError, IndexError, UnicodeError, RecursionError) as error:
         raise ValueError('El bloque del portapapeles está dañado.') from error
@@ -109,18 +112,19 @@ def insert_rows(rows, selected, block):
     block = deepcopy(block)
     outline = Outline(result)
     valid = 0 <= selected < len(result)
-    if block[0]['kind'] == 'detail':
-        parent = selected if valid and result[selected]['kind'] == 'item' else (
+    if block[0]['kind'] in MEASUREMENT_KINDS:
+        parent = selected if valid and result[selected]['kind'] in ('item', 'detail_group') else (
             outline.parents[selected] if valid and result[selected]['kind'] == 'detail' else None)
         if parent is None or result[parent]['cells'][2] != block[0]['cells'][2]:
             raise ValueError('Selecciona una partida de la misma unidad que los detalles copiados.')
-        position, level = selected + 1, outline.levels[parent] + 1
+        position = outline.ends[selected] if result[selected]['kind'] == 'detail_group' else selected + 1
+        level = outline.levels[parent] + 1
     elif valid:
         if result[selected]['kind'] == 'chapter':
             parent = selected
             position = outline.ends[selected]
         else:
-            owner = outline.parents[selected] if result[selected]['kind'] == 'detail' else selected
+            owner = outline.owners[selected]
             parent = outline.parents[owner]
             position = outline.ends[owner]
         level = 0 if parent is None else outline.levels[parent] + 1
@@ -128,5 +132,7 @@ def insert_rows(rows, selected, block):
         parent, position, level = None, len(result), 0
     for row in block:
         row['level'] += level
+        if 'id' in row:
+            row['id'] = uuid4().hex
     result[position:position] = block
     return renumber(result), position

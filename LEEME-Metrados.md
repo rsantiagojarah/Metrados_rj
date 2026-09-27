@@ -33,6 +33,19 @@ En columnas numéricas y mientras editas una celda, `Tab` sigue avanzando entre 
 
 **Numeración automática de ÍTEM:** al crear, eliminar, pegar o mover filas, se renumera toda la planilla de arriba hacia abajo según la jerarquía actual. Los títulos principales son `01`, `02`, `03`…; los subtítulos y partidas del mismo grupo comparten una secuencia: `01.01`, `01.02`…; sus hijos heredan el nuevo prefijo: `01.02.01`, `01.02.02`… Los detalles quedan sin código y no consumen números. Cambiar el nivel o el orden actualiza también todos los descendientes. Los códigos anteriores o editados manualmente se sustituyen por esta secuencia al realizar una operación estructural.
 
+## Títulos dentro del desagregado
+
+Dentro de una partida puedes separar sus mediciones con encabezados como **VEREDAS**, **VEREDAS 2** y sus propios subtítulos. Son títulos internos: aparecen en negrita y con sangría, sin código ÍTEM, unidad ni valores numéricos visibles. La partida suma todos los detalles contenidos en esos grupos; un título vacío no deja el total pendiente.
+
+1. Selecciona la partida y pulsa **Título detalle** (`Alt+G`). Escribe el encabezado.
+2. Selecciona ese título y pulsa **+ Detalle** para añadir mediciones dentro de él.
+3. Pulsa **Subt. detalle** (`Alt+Mayús+G`) para crear un subtítulo dentro del título de detalle seleccionado. También funciona desde un detalle que pertenezca a ese título.
+4. Para crear otro título al mismo nivel, selecciona el título anterior y pulsa **Título detalle**. Se inserta después de todo su bloque. Desde una medición, se inserta después de ella, a su mismo nivel.
+
+Para incorporar mediciones existentes, colócalas después de un título de detalle y usa **Tab** en Ítem o Descripción, o **Mover a…** para elegir el grupo. **Mayús+Tab** saca la medición o subgrupo un nivel, sin permitir que salga de su partida. Subir/bajar, copiar/pegar y eliminar incluyen todos los descendientes del título. Se pueden trasladar grupos a otras partidas de la misma unidad. Al cambiar la unidad de una partida, sus grupos se conservan y se vacían las medidas de todos sus detalles para introducirlas en la nueva unidad.
+
+Los botones principales **Título** y **Subtítulo** siguen creando capítulos que agrupan partidas; usa **Título detalle** y **Subt. detalle** para organizar el interior de una partida. Los grupos internos no consumen números en la secuencia de ÍTEM.
+
 ## Copiar y pegar
 
 **Ctrl+C / Ctrl+V** copia y pega la celda o el rectángulo seleccionado. Puedes seleccionar varias celdas arrastrando o usando Mayús; el formato de texto con tabulaciones es compatible con una hoja de cálculo. El pegado empieza en la celda actual y requiere filas existentes. Las celdas calculadas no se sobrescriben. Si una unidad o diámetro no es admisible, se rechaza todo el pegado, sin dejar cambios parciales.
@@ -57,18 +70,51 @@ Para un área ya conocida (por ejemplo, 837,13 m2), selecciona el detalle y puls
 
 Los resultados se muestran con dos decimales, pero el total usa la precisión del cálculo. Solo se suman detalles de la misma partida; no existe un total global que mezcle unidades.
 
+**Sufijo automático, solo en los detalles de acero:** la descripción termina siempre con la cantidad y el diámetro, por ejemplo `VERTICAL INTERIOR 53 Ø1"`. Se actualiza al cambiar **N.º de veces**, **Diámetro** o la descripción, y se conserva al copiar, guardar y deshacer. Las anotaciones anteriores se reúnen en un único sufijo al final. La cantidad coincide con N.º de veces visible: incluye las repeticiones antiguas, pero no el factor Elem. simil. Renombrar el detalle no altera los factores. Puedes escribir una cantidad y diámetro nuevos en la descripción para actualizar esos campos. Si falta un dato, se muestra `?` hasta completarlo, por ejemplo `Nuevo detalle ? Ø?`. No se agrega a títulos, subtítulos, partidas, grupos internos ni detalles de otras unidades.
+
 ## Archivos y teclado
 
-**Guardar** escribe un archivo de proyecto con extensión `.metrado.json`; **Abrir** restaura la obra, las filas y los datos. El guardado reemplaza el archivo de forma atómica. Cerrar, crear una planilla o abrir otra consulta qué hacer con los cambios pendientes. Eliminar una partida también elimina sus detalles; eliminar un capítulo elimina sus partidas, siempre con confirmación.
+**Guardar** escribe una base de datos SQLite por obra, con extensión `.metrado.db`. No requiere instalar un servidor ni una dependencia adicional. **Abrir** restaura las relaciones, el orden, los datos de entrada y los identificadores internos; recalcula los resultados con el motor Rust. Sigue siendo necesario pulsar **Guardar / Ctrl+S**: no hay autoguardado. Si estás escribiendo una celda, Guardar confirma también esa edición.
 
-Los archivos anteriores siguen abriendo. Los proyectos con niveles explícitos se guardan en formato versión 2 y requieren esta versión de Metrados para preservar los subtítulos. Eliminar un título/subtítulo elimina todo su bloque, con confirmación previa.
+Cada guardado se realiza en una transacción: todas sus modificaciones se confirman juntas o se revierten si falla. Las filas sin cambios no se actualizan en SQL. Un archivo nuevo se publica solo después de completar su primera transacción. Se detecta si otra instancia de la aplicación guardó la misma obra: en ese caso no se sobrescriben sus cambios, y puedes usar **Guardar como** para conservar tu versión. El esquema de la base tiene versión propia; una versión desconocida se rechaza sin modificarla. Esta modalidad está diseñada para archivos locales, no para edición simultánea desde varios equipos en una carpeta de red.
+
+**Migrar un archivo anterior:** usa **Abrir**, selecciona el `.metrado.json` y luego **Guardar**. Elige un nombre para la nueva base `.metrado.db`; el JSON original no se modifica. Se admiten las versiones JSON 1, 2 y 3. **Archivo → Exportar copia JSON…** permite obtener una copia para intercambio, sin cambiar la base activa ni marcar los cambios pendientes como guardados. Los programas anteriores necesitan esa copia JSON compatible, no el archivo SQLite.
+
+Cerrar, crear una planilla o abrir otra consulta qué hacer con los cambios pendientes. Eliminar un título/subtítulo, incluido uno del desagregado, elimina todo su bloque con confirmación previa y puede deshacerse.
+
+## Deshacer y rehacer
+
+**Ctrl+Z** deshace; **Ctrl+Y** o **Ctrl+Mayús+Z** rehace. También están en **Edición**, la barra Organizar y el menú de clic derecho, con el nombre de la operación correspondiente.
+
+El historial cubre celdas, cambio de unidad (incluidas las medidas que se vacían), cantidades directas, nombre de obra, creación y eliminación de grupos, movimientos, niveles y pegado. Pegar o eliminar un bloque con descendientes es una sola operación. Al deshacer se recuperan los datos, los códigos ÍTEM, los totales y la selección; los anchos de columna se conservan. Mientras escribes dentro de una celda, Ctrl+Z actúa primero sobre el texto del editor; al confirmar la celda, su edición entra al historial de la obra.
+
+Se conservan hasta **200 operaciones durante la sesión**. Guardar no borra ese historial; deshacer después de guardar vuelve a marcar la obra como modificada. Una edición nueva después de deshacer descarta el camino de rehacer. Abrir otra obra, crear una nueva o cerrar reinicia el historial. El historial no se guarda en SQLite: recuperar trabajo tras un cierre inesperado requeriría autoguardado o respaldos, que no forman parte de esta versión.
+
+## Consultar los datos SQLite
+
+La base contiene datos relacionales, no un documento JSON dentro de una columna. `project` guarda el nombre y la revisión; `nodes` contiene una fila por título, partida, grupo de detalle o medición. `id` es su identidad estable; `parent_id` identifica el grupo contenedor; `position` determina el orden. Los códigos visibles se pueden renumerar sin cambiar esas identidades. Copiar y pegar crea identidades nuevas. Hay índices por padre/posición, posición global y tipo/unidad.
+
+Las columnas de entrada son `code`, `description`, `unit`, `similar_elements`, `length`, `width_or_hook`, `height_or_lap`, `times_or_diameter`, `steel_repetitions`, `steel_bars` y `direct_quantity`. Las columnas compartidas representan ancho/gancho inicial, alto/empalme y veces/diámetro según la unidad. Los valores de entrada son texto para conservar comas decimales, campos vacíos y ediciones todavía incompletas. Los resultados calculados no se almacenan como datos independientes, para evitar totales desactualizados.
+
+Ejemplo de consulta de solo lectura para listar partidas en su orden actual:
+
+```sql
+SELECT id, parent_id, code, description, unit
+FROM nodes
+WHERE kind = 'item'
+ORDER BY position;
+```
+
+Para integraciones, consulta la base en modo solo lectura. Las escrituras deben pasar por la aplicación: una edición SQL externa podría romper la jerarquía o saltarse el control de revisiones.
 
 | Acción | Atajo |
 | --- | --- |
 | Nueva / abrir / guardar | Ctrl+N / Ctrl+O / Ctrl+S |
 | Guardar como | Ctrl+Mayús+S |
+| Deshacer / rehacer | Ctrl+Z / Ctrl+Y o Ctrl+Mayús+Z |
 | Título / subtítulo | Alt+C / Alt+S |
 | Partida / detalle | Ctrl+Mayús+N / Ctrl+Enter |
+| Título de detalle / subtítulo de detalle | Alt+G / Alt+Mayús+G |
 | Subir / bajar bloque | Alt+↑ / Alt+↓ |
 | Aumentar / reducir nivel | Tab / Mayús+Tab en Ítem o Descripción; Alt+→ / Alt+← |
 | Elegir grupo de destino | Ctrl+M |
@@ -90,3 +136,4 @@ Desde la carpeta principal del proyecto:
 - `cargo test` ejecuta las pruebas del motor Rust.
 - `.venv\Scripts\python.exe -B app\tests\test_sheet.py` ejecuta las pruebas de la tabla y del guardado usando el motor real.
 - `.venv\Scripts\python.exe -B -m unittest discover -s app/tests -v` ejecuta también las pruebas de jerarquía, movimientos y portapapeles sin instalar herramientas adicionales.
+- `.venv\Scripts\python.exe -B app/tests/benchmark_storage.py` mide edición, deshacer, rehacer, apertura y guardado SQLite con 10 000 filas sintéticas en una carpeta temporal. No modifica obras reales. Los tiempos excluyen el repintado de la interfaz y dependen del equipo.
