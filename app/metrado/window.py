@@ -23,6 +23,7 @@ from metrado.clipboard import ROW_MIME, cell_text, decode_rows, encode_rows, ins
 from metrado.organize import DestinationDialog
 from metrado.database import open_document, write_database
 from metrado.history import ProjectTitle
+from metrado.swelling_dialog import SwellingDialog
 
 
 class PlantillaWindow(QMainWindow):
@@ -74,6 +75,7 @@ class PlantillaWindow(QMainWindow):
         self._action(edit, "Eliminar fila…", self.remove_row, "Ctrl+Delete")
         self._organize_actions()
         self._history_actions()
+        self._swelling_actions()
         self.model.changed.connect(self._changed)
         self.title_edit.textEdited.connect(self._changed)
         self.title_edit.editingFinished.connect(self._commit_title)
@@ -133,6 +135,8 @@ class PlantillaWindow(QMainWindow):
 
     def _selection_status(self, *args):
         index = self.table.currentIndex()
+        if hasattr(self, 'swelling_action'):
+            self.swelling_action.setEnabled(self.model.swelling_owner(index.row()) is not None)
         if hasattr(self, 'row_actions'):
             valid = index.isValid()
             row = index.row()
@@ -214,6 +218,9 @@ class PlantillaWindow(QMainWindow):
 
     def _context_menu(self, point):
         index = self.table.indexAt(point)
+        footer_owner = self.table.footer_owner_at(point)
+        if footer_owner is not None:
+            index = self.model.index(footer_owner, 1)
         if index.isValid() and not self.table.selectionModel().isSelected(index):
             self._select(index.row(), index.column())
         menu = QMenu(self)
@@ -227,8 +234,44 @@ class PlantillaWindow(QMainWindow):
         menu.addSeparator()
         menu.addActions(list(self.row_actions.values()))
         menu.addSeparator()
+        menu.addAction(self.swelling_action)
+        menu.addSeparator()
         menu.addAction('Eliminar bloque…', self.remove_row)
         menu.exec(self.table.viewport().mapToGlobal(point))
+
+    def _swelling_actions(self):
+        self.swelling_action = QAction('Factor de esponjamiento…', self)
+        self.swelling_action.setToolTip('Selecciona detalles consecutivos en m³ y aplica un FE al bloque. Doble clic en FE para editar o quitar.')
+        self.swelling_action.triggered.connect(lambda checked=False: self.edit_swelling())
+        self.edit_menu.addSeparator()
+        self.edit_menu.addAction(self.swelling_action)
+        toolbar = self.findChild(QToolBar, 'organizeStrip')
+        toolbar.addSeparator()
+        toolbar.addAction(self.swelling_action)
+        self.table.swellingRequested.connect(self.edit_swelling)
+
+    def edit_swelling(self, owner=None):
+        self.table.commit_editor()
+        selected = ({i.row() for i in self.table.selectionModel().selectedIndexes()}
+                    if owner is None else {owner})
+        try:
+            start, end = self.model.swelling_selection(selected)
+            if start == end:
+                start, end = self.model.swelling_bounds(start)
+        except ValueError as error:
+            QMessageBox.information(self, 'Esponjamiento', str(error))
+            return
+        configs = [self.model.rows[i].get('volume_factor') for i in range(start, end + 1)]
+        config = configs[0] if all(c == configs[0] for c in configs) else None
+        dialog = SwellingDialog(end - start + 1, self.model.swelling_base(start, end), self._enlace, config, self)
+        dialog.remove_button.setEnabled(any(c is not None for c in configs))
+        if dialog.exec() == QDialog.Accepted:
+            try:
+                self.model.set_swelling(range(start, end + 1), dialog.configuration())
+                self._select(start)
+            except (ValueError, OverflowError) as error:
+                QMessageBox.warning(self, 'Esponjamiento', str(error))
+        dialog.deleteLater()
 
     def _apply_structure(self, operation, *args):
         self.table.commit_editor()

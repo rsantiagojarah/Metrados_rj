@@ -12,9 +12,10 @@ import tempfile
 from metrado.hierarchy import MAX_ROWS, Outline, materialize
 from metrado.identity import ensure_ids
 from metrado.sheet import read_project, validate_project
+from metrado.swelling import upgrade_legacy
 
 APPLICATION_ID = 0x4D455452  # METR
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 3
 SQLITE_HEADER = b'SQLite format 3\x00'
 # Visible columns and steel-specific inputs are explicit, queryable SQL columns.
 INPUT_COLUMNS = ('code', 'description', 'unit', 'similar_elements', 'length',
@@ -61,8 +62,29 @@ def _write_target(path, existed):
 def _check_schema(connection):
     if connection.execute('PRAGMA application_id').fetchone()[0] != APPLICATION_ID:
         raise ValueError('Este archivo no es una base de datos de Metrados.')
-    if connection.execute('PRAGMA user_version').fetchone()[0] != SCHEMA_VERSION:
+    version = connection.execute('PRAGMA user_version').fetchone()[0]
+    if version not in (1, 2, SCHEMA_VERSION):
         raise ValueError('Versión de base de datos no compatible. No se modificó el archivo.')
+    return version
+
+
+def _create_swelling_table(connection):
+    connection.execute('''CREATE TABLE item_swelling (
+        item_id TEXT PRIMARY KEY NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+        enabled INTEGER NOT NULL CHECK(enabled IN (0, 1)),
+        percent TEXT NOT NULL,
+        note TEXT NOT NULL
+    )''')
+
+
+def _create_detail_factors(connection):
+    connection.execute('''CREATE TABLE detail_swelling (
+        detail_id TEXT PRIMARY KEY NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+        block_id TEXT NOT NULL,
+        factor TEXT NOT NULL,
+        note TEXT NOT NULL
+    )''')
+    connection.execute('CREATE INDEX detail_swelling_block ON detail_swelling(block_id)')
 
 
 def _create_schema(connection):
@@ -87,13 +109,15 @@ def _create_schema(connection):
     connection.execute('CREATE INDEX nodes_parent_position ON nodes(parent_id, position)')
     connection.execute('CREATE INDEX nodes_position ON nodes(position)')
     connection.execute('CREATE INDEX nodes_kind_unit ON nodes(kind, unit)')
+    _create_swelling_table(connection)
+    _create_detail_factors(connection)
 
 
 def read_database(path):
     with closing(_connect(path, 'ro')) as connection, connection:
         # A read transaction gives title, revision and rows one consistent snapshot.
         connection.execute('BEGIN')
-        _check_schema(connection)
+        version = _check_schema(connection)
         project = connection.execute('SELECT title, revision FROM project WHERE singleton=1').fetchone()
         if project is None or not isinstance(project[0], str) or type(project[1]) is not int:
             raise ValueError('La base no contiene una obra válida.')
@@ -114,7 +138,19 @@ def read_database(path):
             levels[identity] = level
             parents.append(parent)
         ensure_ids(rows)
-        title, rows = validate_project(dict(version=3, title=project[0], rows=rows))
+        if version >= 2:
+            by_id = {row['id']: row for row in rows}
+            for item_id, enabled, percent, note in connection.execute('SELECT item_id, enabled, percent, note FROM item_swelling'):
+                if item_id not in by_id or enabled not in (0, 1):
+                    raise ValueError('Esponjamiento asociado a una partida inválida.')
+                by_id[item_id]['swelling'] = dict(enabled=bool(enabled), percent=percent, note=note)
+        if version >= 3:
+            for detail_id, block, factor, note in connection.execute('SELECT detail_id, block_id, factor, note FROM detail_swelling'):
+                if detail_id not in by_id:
+                    raise ValueError('El FE contiene una referencia inválida.')
+                by_id[detail_id]['volume_factor'] = dict(block=block, factor=factor, note=note)
+        title, rows = validate_project(dict(version=5, title=project[0], rows=rows))
+        upgrade_legacy(rows)
         outline = Outline(rows, strict=True)
         if any(parent != (rows[index]['id'] if index is not None else None)
                for parent, index in zip(parents, outline.parents)):
@@ -139,14 +175,23 @@ def write_database(path, title, rows, expected_revision=None):
     Omit it only for an explicitly chosen Save As destination.
     """
     normalized = materialize(rows)
-    validate_project(dict(version=3, title=title, rows=normalized))
+    validate_project(dict(version=5, title=title, rows=normalized))
+    upgrade_legacy(normalized)
     ensure_ids(normalized)
     outline = Outline(normalized, strict=True)
     records = []
+    swelling_records = []
+    factor_records = []
     for position, row in enumerate(normalized):
         parent = outline.parents[position]
         records.append((row['id'], normalized[parent]['id'] if parent is not None else None,
                         position, row['kind'], *(row['cells'][c] for c in CELL_INDEXES), row['direct']))
+        if 'swelling' in row:
+            config = row['swelling']
+            swelling_records.append((row['id'], int(config['enabled']), config['percent'], config['note']))
+        if 'volume_factor' in row:
+            config = row['volume_factor']
+            factor_records.append((row['id'], config['block'], config['factor'], config['note']))
     path = Path(path)
     existed = path.exists()
     if expected_revision is not None and not existed:
@@ -155,15 +200,24 @@ def write_database(path, title, rows, expected_revision=None):
         try:
             connection.execute('BEGIN IMMEDIATE')
             if existed:
-                _check_schema(connection)
+                version = _check_schema(connection)
             else:
                 _create_schema(connection)
+                version = SCHEMA_VERSION
             project = connection.execute('SELECT title, revision FROM project WHERE singleton=1').fetchone()
             if project is None:
                 raise ValueError('La base no contiene una obra válida.')
             old_title, revision = project
             if expected_revision is not None and revision != expected_revision:
                 raise ConflictError('Otra instancia modificó esta obra. Abre la versión actual o usa Guardar como; no se sobrescribieron sus cambios.')
+            migrated = version < SCHEMA_VERSION
+            if migrated:
+                if version < 2:
+                    _create_swelling_table(connection)
+                _create_detail_factors(connection)
+                connection.execute(f'PRAGMA user_version = {SCHEMA_VERSION}')
+            old_swelling = {record[0]: record for record in connection.execute('SELECT item_id, enabled, percent, note FROM item_swelling')}
+            old_factors = {record[0]: record for record in connection.execute('SELECT detail_id, block_id, factor, note FROM detail_swelling')}
             old = {record[0]: record for record in connection.execute(f'SELECT {FIELD_LIST} FROM nodes')}
             current_ids = {record[0] for record in records}
             deleted = [(identity,) for identity in old if identity not in current_ids]
@@ -173,7 +227,19 @@ def write_database(path, title, rows, expected_revision=None):
             marks = ', '.join('?' for _ in COLUMNS)
             connection.executemany(f'INSERT INTO nodes ({FIELD_LIST}) VALUES ({marks}) '
                                    f'ON CONFLICT(id) DO UPDATE SET {assignments}', updates)
-            if deleted or updates or old_title != title:
+            swelling_ids = {record[0] for record in swelling_records}
+            removed_swelling = [(identity,) for identity in old_swelling if identity not in swelling_ids]
+            changed_swelling = [record for record in swelling_records if old_swelling.get(record[0]) != record]
+            connection.executemany('DELETE FROM item_swelling WHERE item_id=?', removed_swelling)
+            connection.executemany('''INSERT INTO item_swelling VALUES (?, ?, ?, ?)
+                ON CONFLICT(item_id) DO UPDATE SET enabled=excluded.enabled, percent=excluded.percent, note=excluded.note''', changed_swelling)
+            factor_ids = {record[0] for record in factor_records}
+            removed_factors = [(identity,) for identity in old_factors if identity not in factor_ids]
+            changed_factors = [record for record in factor_records if old_factors.get(record[0]) != record]
+            connection.executemany('DELETE FROM detail_swelling WHERE detail_id=?', removed_factors)
+            connection.executemany('''INSERT INTO detail_swelling VALUES (?, ?, ?, ?)
+                ON CONFLICT(detail_id) DO UPDATE SET block_id=excluded.block_id, factor=excluded.factor, note=excluded.note''', changed_factors)
+            if deleted or updates or old_title != title or migrated or removed_swelling or changed_swelling or removed_factors or changed_factors:
                 revision += 1
                 connection.execute('UPDATE project SET title=?, revision=? WHERE singleton=1', (title, revision))
             connection.commit()

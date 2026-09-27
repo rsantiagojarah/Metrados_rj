@@ -1,9 +1,10 @@
 """Editable desktop grid with the reference sheet's two-level header."""
 from copy import deepcopy
+from uuid import uuid4
 
 from PySide6.QtCore import QAbstractTableModel, QEvent, QModelIndex, QRect, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QKeySequence, QPainter, QPen, QUndoStack
-from PySide6.QtWidgets import QApplication, QAbstractItemDelegate, QComboBox, QHeaderView, QStyledItemDelegate, QTableView
+from PySide6.QtWidgets import QApplication, QAbstractItemDelegate, QComboBox, QHeaderView, QStyleOptionViewItem, QStyledItemDelegate, QTableView, QToolTip
 
 from metrado.sheet import DIMENSIONS, UNITS, calculate
 from metrado.steel import (
@@ -14,10 +15,13 @@ from metrado import theme
 from metrado.hierarchy import Outline
 from metrado.identity import ensure_ids
 from metrado.history import RowEdit, RowStructure
+from metrado.swelling import adjusted_volume, factor_text, validate_swelling, volume_blocks, upgrade_legacy
 
 LABELS = ("ÍTEM", "DESCRIPCIÓN", "Und", "Elem.\nsimil.", "Largo", "Ancho", "Alto",
           "N.º de\nveces", "Lon.", "Área", "Vol.", "Kg.", "Und.", "Total")
 WIDTHS = (88, 490, 44, 48, 66, 66, 66, 48, 64, 64, 64, 64, 64, 88)
+ROW_HEIGHT = 28
+FOOTER_HEIGHT = 28
 
 
 DISPLAY_ROLE = int(Qt.DisplayRole)
@@ -36,10 +40,12 @@ EDIT_FLAGS = READ_FLAGS | Qt.ItemIsEditable
 class SheetModel(QAbstractTableModel):
     changed = Signal()
     selectionRequested = Signal(int, int)
+    footersChanged = Signal()
 
     def __init__(self, engine, rows):
         super().__init__()
         ensure_ids(rows)
+        upgrade_legacy(rows)
         for row in rows:
             sync_description(row, engine)
         self.undo_stack = QUndoStack(self)
@@ -79,6 +85,77 @@ class SheetModel(QAbstractTableModel):
             self._details += kind == "detail"
         if owner is not None:
             self._ends[owner] = len(self.rows)
+        self.swelling_footers = {end: start for start, end in volume_blocks(self.rows)}
+        self._swelling_ends = {start: end for end, start in self.swelling_footers.items()}
+
+    def swelling_owner(self, row):
+        return row if (0 <= row < len(self.rows) and self.rows[row]['kind'] == 'detail'
+                       and self.rows[row]['cells'][2] == 'm3') else None
+
+    def swelling_base(self, start, end=None):
+        end = self._swelling_ends.get(start, start) if end is None else end
+        try:
+            return self.engine.ask_sheet_total([self.values[(i, 10)] for i in range(start, end + 1)])
+        except (KeyError, ValueError, OverflowError):
+            return None
+
+    def swelling_selection(self, selected):
+        indexes = sorted(set(selected))
+        if (not indexes or indexes != list(range(indexes[0], indexes[-1] + 1)) or
+                any(self.swelling_owner(i) is None for i in indexes) or
+                self._owners[indexes[0]] != self._owners[indexes[-1]]):
+            raise ValueError('Selecciona uno o varios detalles consecutivos de una misma partida m³, sin títulos intermedios.')
+        return indexes[0], indexes[-1]
+
+    def swelling_bounds(self, row):
+        for end, start in self.swelling_footers.items():
+            if start <= row <= end:
+                return start, end
+        return row, row
+
+    def swelling_summary(self, owner):
+        config = self.rows[owner]['volume_factor']
+        cells = [''] * 14
+        cells[8] = 'FE'
+        cells[9] = factor_text(config)
+        total = self.values.get((self._swelling_ends[owner], 14))
+        cells[10] = 'Pendiente' if total is None else f'{total:.2f}'
+        return cells
+
+    def swelling_tooltip(self, owner):
+        cells = self.swelling_summary(owner)
+        base = self.swelling_base(owner)
+        base_text = 'Pendiente' if base is None else f'{base:.2f}'
+        end = self._swelling_ends[owner]
+        note = self.rows[owner]['volume_factor']['note']
+        return (f'Detalles {owner + 1}–{end + 1}: {base_text} m³ × {cells[9]} = {cells[10]} m³\n'
+                f'{note}\nDoble clic para editar o quitar el FE. El subtotal sustituye a sus detalles en el total.')
+
+    def set_swelling(self, selected, config):
+        start, end = self.swelling_selection(selected)
+        before = deepcopy(self.rows[start:end + 1])
+        after = deepcopy(before)
+        if config is None:
+            for row in after:
+                row.pop('volume_factor', None)
+        else:
+            if not isinstance(config, dict) or set(config) != {'factor', 'note'}:
+                raise ValueError('Configuración de FE inválida.')
+            # Re-editing unchanged settings is a no-op; joining/replacing blocks
+            # is explicit and creates an independent identity.
+            old = before[0].get('volume_factor')
+            same = old and all(row.get('volume_factor') == old for row in before)
+            if same and config == {key: old[key] for key in ('factor', 'note')}:
+                return
+            value = dict(config, block=uuid4().hex)
+            for row in after:
+                row['volume_factor'] = dict(value)
+                validate_swelling(row)
+            base = self.swelling_base(start, end)
+            if base is not None:
+                adjusted_volume(base, config, self.engine)
+        if before != after:
+            self.undo_stack.push(RowEdit(self, start, before, after, 1, 'factor de esponjamiento'))
 
     def _refresh_summary(self):
         self.summary_text = f"{self._items} partidas · {self._details} detalles · {self._pending} detalles pendientes"
@@ -96,6 +173,8 @@ class SheetModel(QAbstractTableModel):
         return 0 if parent.isValid() else 14
 
     def headerData(self, section, orientation, role=Qt.DisplayRole):
+        if role == Qt.TextAlignmentRole and orientation == Qt.Vertical and section in self.swelling_footers:
+            return int(Qt.AlignHCenter | Qt.AlignTop)
         if role == Qt.DisplayRole:
             return getattr(self, "header_labels", LABELS)[section] if orientation == Qt.Horizontal else str(section + 1)
 
@@ -141,6 +220,8 @@ class SheetModel(QAbstractTableModel):
             return self._colors[theme.SURFACE]
         steel = kind == "detail" and row["cells"][2] == "kg"
         if role == TOOLTIP_ROLE:
+            if 'volume_factor' in row:
+                return self.swelling_tooltip(self.swelling_bounds(r)[0])
             if kind == 'detail_group':
                 return 'Título del desagregado. Agrupa mediciones; no aporta cantidad propia. Tab cambia el nivel.'
             if steel and c == 9:
@@ -266,6 +347,8 @@ class SheetModel(QAbstractTableModel):
         if self.rows[r]["cells"][c] == value and not (c in (4, 5, 6) and self.rows[r]["direct"]):
             return False
         self.rows[r]["cells"][c] = value
+        if c == 2 and value != 'm3':
+            self.rows[r].pop('swelling', None)
         if c in (4, 5, 6, 7, 9, 10):
             self.rows[r]["direct"] = ""
         if c == 2:
@@ -275,6 +358,8 @@ class SheetModel(QAbstractTableModel):
                 if child['kind'] == 'detail' and child['cells'][2] == 'kg' and value != 'kg':
                     child['cells'][1] = description_base(child['cells'][1])
                 child["cells"][2] = value
+                if value != 'm3':
+                    child.pop('volume_factor', None)
                 if child['kind'] == 'detail_group':
                     continue
                 child["cells"][4:7] = [""] * 3
@@ -293,9 +378,12 @@ class SheetModel(QAbstractTableModel):
     def recalculate(self, row=None):
         if getattr(self, '_batching', False):
             return
+        footer_changed = False
         if row is None:
+            previous_footers = self.swelling_footers
             self.values, self.errors = calculate(self.rows, self.engine)
             self._rebuild_structure()
+            footer_changed = previous_footers != self.swelling_footers
             self._pending = sum(self.rows[r]["kind"] == "detail" for r in self.errors)
             start, end = 0, len(self.rows)
         else:
@@ -307,13 +395,24 @@ class SheetModel(QAbstractTableModel):
             values, errors = calculate(self.rows[start:end], self.engine)
             for r in range(start, end):
                 self.errors.pop(r, None)
-                for column in range(14):
+                for column in range(15):
                     self.values.pop((r, column), None)
             self.values.update(((r + start, c), value) for (r, c), value in values.items())
             self.errors.update((r + start, error) for r, error in errors.items())
             after = sum(self.rows[start + r]["kind"] == "detail" for r in errors)
             self._pending += after - before
+            if owner is not None:
+                previous = {e: s for e, s in self.swelling_footers.items() if start <= e < end}
+                current = {e + start: s + start for s, e in volume_blocks(self.rows[start:end])}
+                for e, s in previous.items():
+                    self.swelling_footers.pop(e)
+                    self._swelling_ends.pop(s)
+                self.swelling_footers.update(current)
+                self._swelling_ends.update({s: e for e, s in current.items()})
+                footer_changed = previous != current
         self._refresh_summary()
+        if footer_changed:
+            self.footersChanged.emit()
         if end > start:
             self.dataChanged.emit(self.index(start, 0), self.index(end - 1, 13))
         self.changed.emit()
@@ -347,6 +446,7 @@ class SheetModel(QAbstractTableModel):
 
     def replace(self, rows, label=None, before_selection=None, after_selection=None):
         ensure_ids(rows)
+        upgrade_legacy(rows)
         for row in rows:
             sync_description(row, self.engine)
         if label is not None:
@@ -357,6 +457,7 @@ class SheetModel(QAbstractTableModel):
         self._replace(rows)
 
     def _replace(self, rows):
+        upgrade_legacy(rows)
         self.beginResetModel()
         self.rows = rows
         self.values, self.errors = calculate(rows, self.engine)
@@ -460,12 +561,43 @@ class SheetDelegate(QStyledItemDelegate):
         else:
             super().setModelData(editor, model, index)
 
+    def _body_option(self, option, index):
+        # The footer is a visual band below the last real row, not a data node.
+        # Domain indexes, clipboard blocks and hierarchy operations stay stable.
+        body = QStyleOptionViewItem(option)
+        if index.row() in index.model().swelling_footers:
+            body.rect.setHeight(max(ROW_HEIGHT, body.rect.height() - FOOTER_HEIGHT))
+        return body
+
+    def updateEditorGeometry(self, editor, option, index):
+        super().updateEditorGeometry(editor, self._body_option(option, index), index)
+
     def paint(self, painter, option, index):
-        super().paint(painter, option, index)
+        body = self._body_option(option, index)
+        super().paint(painter, body, index)
         painter.save()
         painter.setPen(self._grid_pen)
-        painter.drawLine(option.rect.bottomLeft(), option.rect.bottomRight())
+        painter.drawLine(body.rect.bottomLeft(), body.rect.bottomRight())
         painter.drawLine(option.rect.topRight(), option.rect.bottomRight())
+        owner = index.model().swelling_footers.get(index.row())
+        if owner is not None:
+            footer = QRect(option.rect.x(), body.rect.bottom() + 1, option.rect.width(), FOOTER_HEIGHT)
+            painter.fillRect(footer, QColor(theme.SURFACE))
+            if index.column() == 10:
+                painter.setPen(QColor(theme.DETAIL))
+                painter.drawLine(footer.topLeft(), footer.topRight())
+            painter.setPen(self._grid_pen)
+            painter.drawLine(footer.bottomLeft(), footer.bottomRight())
+            painter.drawLine(footer.topRight(), footer.bottomRight())
+            text = index.model().swelling_summary(owner)[index.column()]
+            font = QFont('Consolas')
+            font.setPixelSize(11)
+            font.setWeight(QFont.DemiBold)
+            painter.setFont(font)
+            painter.setPen(QColor(theme.DETAIL))
+            alignment = Qt.AlignCenter if index.column() == 8 else Qt.AlignRight | Qt.AlignVCenter
+            painter.drawText(footer.adjusted(3, 0, -3, 0), alignment,
+                             painter.fontMetrics().elidedText(text, Qt.ElideRight, footer.width() - 6))
         painter.restore()
 
 
@@ -483,6 +615,7 @@ class SheetView(QTableView):
 
     levelRequested = Signal(bool)
     clipboardRequested = Signal(str)
+    swellingRequested = Signal(int)
     def __init__(self, model):
         super().__init__()
         self.setModel(model)
@@ -494,7 +627,7 @@ class SheetView(QTableView):
         self.setSelectionMode(QTableView.ContiguousSelection)
         self.setEditTriggers(QTableView.DoubleClicked | QTableView.EditKeyPressed | QTableView.AnyKeyPressed)
         self.setHorizontalScrollMode(QTableView.ScrollPerPixel)
-        self.verticalHeader().setDefaultSectionSize(28)
+        self.verticalHeader().setDefaultSectionSize(ROW_HEIGHT)
         self.verticalHeader().setMinimumSectionSize(24)
         self.verticalHeader().setFixedWidth(34)
         for column, width in enumerate(WIDTHS):
@@ -502,7 +635,57 @@ class SheetView(QTableView):
         self.selectionModel().currentChanged.connect(self.sync_header)
         self.model().modelReset.connect(lambda: self.sync_header(self.currentIndex()))
         self.model().changed.connect(lambda: self.sync_header(self.currentIndex()))
+        self._footer_rows = set()
+        self.verticalHeader().sectionResized.connect(self._keep_footer_height)
+        self.model().modelReset.connect(self.sync_footers)
+        self.model().footersChanged.connect(self.sync_footers)
+        self.sync_footers()
         self.sync_header(self.currentIndex())
+
+    def _keep_footer_height(self, row, old_size, new_size):
+        if row in self.model().swelling_footers and new_size < ROW_HEIGHT + FOOTER_HEIGHT:
+            self.setRowHeight(row, ROW_HEIGHT + FOOTER_HEIGHT)
+
+    def sync_footers(self):
+        for row in self._footer_rows:
+            if row < self.model().rowCount():
+                self.setRowHeight(row, ROW_HEIGHT)
+        self._footer_rows = set(self.model().swelling_footers)
+        for row in self._footer_rows:
+            self.setRowHeight(row, ROW_HEIGHT + FOOTER_HEIGHT)
+        self.viewport().update()
+
+    def footer_owner_at(self, point):
+        index = self.indexAt(point)
+        if index.isValid() and index.row() in self.model().swelling_footers:
+            if point.y() >= self.rowViewportPosition(index.row()) + self.rowHeight(index.row()) - FOOTER_HEIGHT:
+                return self.model().swelling_footers[index.row()]
+        return None
+
+    def mousePressEvent(self, event):
+        owner = self.footer_owner_at(event.position().toPoint())
+        if owner is not None:
+            self.commit_editor()
+            self.setCurrentIndex(self.model().index(owner, 1))
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseDoubleClickEvent(self, event):
+        owner = self.footer_owner_at(event.position().toPoint())
+        if owner is not None:
+            self.swellingRequested.emit(owner)
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
+
+    def viewportEvent(self, event):
+        if event.type() == QEvent.ToolTip:
+            owner = self.footer_owner_at(event.pos())
+            if owner is not None:
+                QToolTip.showText(event.globalPos(), self.model().swelling_tooltip(owner), self)
+                return True
+        return super().viewportEvent(event)
 
     def event(self, event):
         # Tab belongs to the outline only on Ítem/Descripción, outside a cell editor.

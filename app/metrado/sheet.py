@@ -6,6 +6,7 @@ from pathlib import Path
 import tempfile
 
 from metrado.hierarchy import Outline
+from metrado.swelling import adjusted_volume, validate_swelling, volume_blocks, upgrade_legacy
 
 UNITS = ("m", "m2", "m3", "kg", "und", "mes", "vje", "glb")
 RESULT_COLUMN = {"m": 8, "m2": 9, "m3": 10, "kg": 12,
@@ -107,8 +108,13 @@ def calculate(rows, engine):
                 errors[current] = "Hay detalles pendientes o inválidos en esta partida."
             else:
                 try:
-                    values[(current, 13)] = engine.ask_sheet_total(quantities)
-                except ValueError:
+                    base = engine.ask_sheet_total(quantities)
+                    config = rows[current].get('swelling')
+                    if config is not None:
+                        validate_swelling(rows[current])
+                        values[(current, 10)] = base
+                    values[(current, 13)] = adjusted_volume(base, config, engine)
+                except (ValueError, OverflowError):
                     errors[current] = "El total está fuera del rango permitido."
 
     for index, row in enumerate(rows):
@@ -165,6 +171,48 @@ def calculate(rows, engine):
             errors[index] = "Completa las medidas y factores con números positivos y finitos."
             invalid = True
     finish()
+    # A block contributes its adjusted subtotal instead of its raw members.
+    # Column 14 is internal only: the compact FE band reads it, never a cell.
+    blocks = dict(volume_blocks(rows))
+    if not blocks:
+        return values, errors
+    current, contributions, adjusted = None, [], False
+
+    def finish_adjusted():
+        if current is not None and adjusted:
+            values.pop((current, 13), None)
+            if current not in errors:
+                try:
+                    values[(current, 13)] = engine.ask_sheet_total(contributions)
+                except (ValueError, OverflowError):
+                    errors[current] = 'El total está fuera del rango permitido.'
+
+    index = 0
+    while index < len(rows):
+        row = rows[index]
+        if row['kind'] not in ('detail', 'detail_group'):
+            finish_adjusted()
+            current = index if row['kind'] == 'item' else None
+            contributions, adjusted = [], False
+        elif current is not None and index in blocks:
+            end = blocks[index]
+            adjusted = True
+            try:
+                for member in rows[index:end + 1]:
+                    validate_swelling(member)
+                base = engine.ask_sheet_total([values[(i, 10)] for i in range(index, end + 1)])
+                subtotal = adjusted_volume(base, row['volume_factor'], engine)
+                values[(end, 14)] = subtotal
+                contributions.append(subtotal)
+            except (ValueError, KeyError, OverflowError):
+                errors[current] = 'Hay un bloque FE pendiente o fuera de rango.'
+            index = end
+        elif current is not None and row['kind'] == 'detail':
+            quantity = values.get((index, RESULT_COLUMN[row['cells'][2]]))
+            if quantity is not None:
+                contributions.append(quantity)
+        index += 1
+    finish_adjusted()
     return values, errors
 
 
@@ -172,19 +220,21 @@ def read_project(path):
     if Path(path).stat().st_size > 10_000_000:
         raise ValueError("El archivo supera el límite de 10 MB.")
     data = json.loads(Path(path).read_text(encoding="utf-8"))
-    return validate_project(data)
+    title, rows = validate_project(data)
+    upgrade_legacy(rows)
+    return title, rows
 
 
 def validate_project(data):
-    if not isinstance(data, dict) or type(data.get('version')) is not int or data.get("version") not in (1, 2, 3):
+    if not isinstance(data, dict) or type(data.get('version')) is not int or data.get("version") not in (1, 2, 3, 4, 5):
         raise ValueError("Formato de planilla no reconocido.")
     if not isinstance(data.get("title"), str) or not isinstance(data.get("rows"), list):
         raise ValueError("La planilla no contiene un título y filas válidos.")
     if len(data["rows"]) > 10000:
         raise ValueError("La planilla supera el límite de 10 000 filas.")
-    current = None
+    current, legacy_adjustment = None, False
     for row in data["rows"]:
-        kinds = ('chapter', 'item', 'detail', 'detail_group') if data['version'] == 3 else ('chapter', 'item', 'detail')
+        kinds = ('chapter', 'item', 'detail', 'detail_group') if data['version'] >= 3 else ('chapter', 'item', 'detail')
         if not isinstance(row, dict) or row.get("kind") not in kinds:
             raise ValueError("La planilla contiene un tipo de fila inválido.")
         cells = row.get("cells")
@@ -192,17 +242,26 @@ def validate_project(data):
             raise ValueError("Cada fila debe contener 14 columnas de texto.")
         if not isinstance(row.get("direct"), str):
             raise ValueError("Cantidad directa inválida.")
+        if 'swelling' in row and data['version'] < 4:
+            raise ValueError('El esponjamiento requiere formato JSON versión 4.')
+        if 'volume_factor' in row and data['version'] < 5:
+            raise ValueError('El FE por detalles requiere formato JSON versión 5.')
+        validate_swelling(row)
         if data['version'] >= 2 and 'level' not in row:
             raise ValueError('Falta el nivel de una fila.')
         if row["kind"] == "chapter":
             current = None
+            legacy_adjustment = False
         elif row["kind"] == "item":
             if cells[2] not in UNITS:
                 raise ValueError("Unidad de partida no reconocida.")
             current = cells[2]
+            legacy_adjustment = 'swelling' in row
         elif current is None:
             raise ValueError("Hay detalles sin una partida asociada.")
         else:
+            if legacy_adjustment and 'volume_factor' in row:
+                raise ValueError('La partida mezcla el ajuste antiguo con FE por detalles.')
             if data['version'] >= 2 and cells[2] != current:
                 raise ValueError('El detalle y su partida deben tener la misma unidad.')
             cells[2] = current
@@ -225,8 +284,10 @@ def write_project(path, title, rows):
     """Atomic replacement keeps an existing project intact if writing fails."""
     from metrado.hierarchy import materialize
     groups = any(row['kind'] == 'detail_group' for row in rows)
-    hierarchical = groups or any('level' in row for row in rows)
-    data = {"version": 3 if groups else 2 if hierarchical else 1, "title": title,
+    blocks = any('volume_factor' in row for row in rows)
+    swelling = blocks or any('swelling' in row for row in rows)
+    hierarchical = swelling or groups or any('level' in row for row in rows)
+    data = {"version": 5 if blocks else 4 if swelling else 3 if groups else 2 if hierarchical else 1, "title": title,
             "rows": materialize(rows) if hierarchical else deepcopy(rows)}
     validate_project(data)
     for row in data["rows"]:

@@ -78,9 +78,25 @@ Los resultados se muestran con dos decimales, pero el total usa la precisión de
 
 Cada guardado se realiza en una transacción: todas sus modificaciones se confirman juntas o se revierten si falla. Las filas sin cambios no se actualizan en SQL. Un archivo nuevo se publica solo después de completar su primera transacción. Se detecta si otra instancia de la aplicación guardó la misma obra: en ese caso no se sobrescriben sus cambios, y puedes usar **Guardar como** para conservar tu versión. El esquema de la base tiene versión propia; una versión desconocida se rechaza sin modificarla. Esta modalidad está diseñada para archivos locales, no para edición simultánea desde varios equipos en una carpeta de red.
 
-**Migrar un archivo anterior:** usa **Abrir**, selecciona el `.metrado.json` y luego **Guardar**. Elige un nombre para la nueva base `.metrado.db`; el JSON original no se modifica. Se admiten las versiones JSON 1, 2 y 3. **Archivo → Exportar copia JSON…** permite obtener una copia para intercambio, sin cambiar la base activa ni marcar los cambios pendientes como guardados. Los programas anteriores necesitan esa copia JSON compatible, no el archivo SQLite.
+**Migrar un archivo anterior:** usa **Abrir**, selecciona el `.metrado.json` y luego **Guardar**. Elige un nombre para la nueva base `.metrado.db`; el JSON original no se modifica. Se admiten las versiones JSON 1, 2, 3, 4 y 5. **Archivo → Exportar copia JSON…** permite obtener una copia para intercambio, sin cambiar la base activa ni marcar los cambios pendientes como guardados. Si hay FE por detalles, la copia usa JSON 5 y requiere esta versión de Metrados para preservar el ajuste; sin ella conserva el formato anterior que corresponda.
 
 Cerrar, crear una planilla o abrir otra consulta qué hacer con los cambios pendientes. Eliminar un título/subtítulo, incluido uno del desagregado, elimina todo su bloque con confirmación previa y puede deshacerse.
+
+## Factor de esponjamiento por bloques de detalles (m³)
+
+Selecciona **uno o varios detalles consecutivos de la misma partida m³**, arrastrando sobre sus celdas o usando Mayús+clic. No incluyas títulos ni partidas en la selección. En el clic derecho, el menú **Edición** o la barra Organizar, elige **Factor de esponjamiento…** e introduce directamente el **FE**, por ejemplo **1,20** (no 20 %). La observación es opcional y se consulta al pasar el cursor por el bloque o su línea FE. El programa no recomienda un valor técnico: utiliza el que corresponda a tu proyecto.
+
+Debajo del bloque aparece **una sola línea**, con las mismas columnas y anchos: **Lon.: FE · Área: 1,20 · Vol.: 57.60**, para dos detalles de 24 m³. Las demás columnas quedan vacías. No hay rótulos BASE/FINAL ni un resumen grande. La línea FE es calculada, no una medición adicional ni un ÍTEM.
+
+**Subtotal del bloque = suma de sus volúmenes originales × FE.** El total de la partida suma los subtotales ajustados y los detalles que no tienen FE, una sola vez. Puedes tener varios bloques con factores diferentes, incluso bloques adyacentes con el mismo factor. Los detalles conservan sus dimensiones y volúmenes originales. Un bloque incompleto muestra **Pendiente** y deja pendiente el total de la partida; los otros bloques válidos mantienen su subtotal. El FE debe ser finito y mayor o igual a 1; se admite coma o punto decimal y no se redondea antes de calcular.
+
+**Doble clic en la línea FE** permite cambiar el factor o **Quitar FE**. También puedes seleccionar un miembro del bloque y abrir la misma acción para editar todo ese bloque. Seleccionar varias filas permite aplicar un nuevo FE solo a ese tramo, sustituyendo el anterior sin superponer ajustes. Ctrl+Z deshace y Ctrl+Y rehace cada cambio.
+
+Al **mover, copiar o eliminar detalles**, el factor acompaña a sus mediciones. Si separas un bloque mediante movimientos o insertando filas libres, cada tramo consecutivo conserva su FE y muestra su propio subtotal. Un detalle nuevo **no hereda automáticamente** un FE. Copiar un bloque o parte de él conserva los factores y crea identidades independientes al pegar; el resumen de texto corresponde únicamente a lo copiado. Para copiar filas completas usa sus encabezados o Ctrl+Mayús+C; Ctrl+C sobre celdas conserva el comportamiento de texto. Cambiar la unidad a otra distinta de m³ elimina los FE, recuperables con Ctrl+Z.
+
+**Ctrl+S** guarda los factores en SQLite, esquema **3**, en la tabla consultable `detail_swelling` (`detail_id`, `block_id`, `factor`, `note`). Los resultados no se almacenan: se recalculan desde las mediciones. Las bases anteriores se leen sin escribir y se migran al guardar, en una transacción que también revierte el cambio de esquema si falla. Se conservan las revisiones para detectar cambios de otra instancia.
+
+Los ajustes antiguos por partida se convierten en bloques sobre sus detalles actuales, conservando factor y observación. Si hay títulos intermedios se muestran varios subtotales equivalentes. Un ajuste antiguo desactivado se conserva como FE 1,00, con el porcentaje anterior anotado. Una partida antigua vacía conserva su configuración hasta que tenga detalles. La exportación con FE por detalles utiliza **JSON 5**; después de guardar en SQLite 3 o JSON 5 necesitas esta versión de la aplicación para volver a abrir el archivo.
 
 ## Deshacer y rehacer
 

@@ -8,7 +8,8 @@ from uuid import uuid4
 from PySide6.QtCore import QMimeData, Qt
 
 from metrado.hierarchy import MAX_ROWS, MEASUREMENT_KINDS, Outline, materialize, renumber
-from metrado.sheet import new_row, validate_project
+from metrado.sheet import calculate, new_row, validate_project
+from metrado.swelling import factor_text, upgrade_legacy, volume_blocks
 
 ROW_MIME = 'application/x-metrado-rows+json'
 MAX_BYTES = 10_000_000
@@ -40,8 +41,17 @@ def encode_rows(model, selected):
             row['level'] -= outline.levels[index]
             block.append(row)
             text.append([cell_text(model, i, c) for c in range(14)])
+    # Compute summaries from the copied subset, not the source block's total.
+    wrapper = [new_row('item', unit=block[0]['cells'][2])] if block[0]['kind'] in MEASUREMENT_KINDS else []
+    values, _ = calculate(wrapper + block, model.engine)
+    for start, end in reversed(list(volume_blocks(block))):
+        summary = [''] * 14
+        summary[8:10] = ['FE', factor_text(block[start]['volume_factor'])]
+        total = values.get((end + len(wrapper), 14))
+        summary[10] = 'Pendiente' if total is None else f'{total:.2f}'
+        text.insert(end + 1, summary)
     mime = QMimeData()
-    version = 2 if any(row['kind'] == 'detail_group' for row in block) else 1
+    version = 4 if any('volume_factor' in row for row in block) else 3 if any('swelling' in row for row in block) else 2 if any(row['kind'] == 'detail_group' for row in block) else 1
     mime.setData(ROW_MIME, json.dumps({'version': version, 'rows': block}, ensure_ascii=False).encode('utf-8'))
     mime.setText(tsv(text))
     return mime
@@ -78,7 +88,7 @@ def decode_rows(raw):
         raise ValueError('El portapapeles supera el límite de 10 MB.')
     try:
         data = json.loads(bytes(raw).decode('utf-8'))
-        if not isinstance(data, dict) or data.get('version') not in (1, 2) or not isinstance(data.get('rows'), list):
+        if not isinstance(data, dict) or data.get('version') not in (1, 2, 3, 4) or not isinstance(data.get('rows'), list):
             raise ValueError('Formato de filas no reconocido.')
         rows = data['rows']
         if not rows or len(rows) > MAX_ROWS:
@@ -87,7 +97,13 @@ def decode_rows(raw):
             raise ValueError('Nivel de fila inválido en el portapapeles.')
         if rows[0]['level'] != 0:
             raise ValueError('El bloque copiado debe empezar en el nivel principal.')
-        version = 3 if any(row['kind'] == 'detail_group' for row in rows) else 2
+        swelling = any('swelling' in row for row in rows)
+        blocks = any('volume_factor' in row for row in rows)
+        if blocks and data['version'] < 4:
+            raise ValueError('El FE por detalles requiere portapapeles versión 4.')
+        if swelling and data['version'] < 3:
+            raise ValueError('El bloque con esponjamiento requiere una versión de portapapeles más reciente.')
+        version = 5 if blocks else 4 if swelling else 3 if any(row['kind'] == 'detail_group' for row in rows) else 2
         if rows[0]['kind'] in MEASUREMENT_KINDS:
             if any(row['kind'] not in MEASUREMENT_KINDS or
                    row['cells'][2] != rows[0]['cells'][2] for row in rows):
@@ -100,6 +116,7 @@ def decode_rows(raw):
                 row['level'] -= 1
         else:
             validate_project({'version': version, 'title': '', 'rows': rows})
+        upgrade_legacy(rows)
         return rows
     except (KeyError, TypeError, IndexError, UnicodeError, RecursionError) as error:
         raise ValueError('El bloque del portapapeles está dañado.') from error
@@ -130,9 +147,13 @@ def insert_rows(rows, selected, block):
         level = 0 if parent is None else outline.levels[parent] + 1
     else:
         parent, position, level = None, len(result), 0
+    factor_ids = {}
     for row in block:
         row['level'] += level
         if 'id' in row:
             row['id'] = uuid4().hex
+        if 'volume_factor' in row:
+            config = row['volume_factor']
+            config['block'] = factor_ids.setdefault(config['block'], uuid4().hex)
     result[position:position] = block
     return renumber(result), position
