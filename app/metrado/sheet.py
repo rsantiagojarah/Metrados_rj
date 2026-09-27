@@ -1,4 +1,4 @@
-"""Sheet data and validation. All quantity formulas live in Rust."""
+"""Sheet data and validation. Rust computes quantities; steel rules provide inputs."""
 from copy import deepcopy
 import json
 import os
@@ -6,6 +6,7 @@ from pathlib import Path
 import tempfile
 
 from metrado.hierarchy import Outline
+from metrado.steel_config import dimensions as steel_dimensions, validate_row as validate_steel, sync_dimensions
 from metrado.swelling import adjusted_volume, validate_swelling, volume_blocks, upgrade_legacy
 
 UNITS = ("m", "m2", "m3", "kg", "und", "mes", "vje", "glb")
@@ -148,10 +149,12 @@ def calculate(rows, engine):
                 values[(index, 7)] = times
                 if not cells[7].strip():
                     raise ValueError("diameter")
+                hook, lap = (steel_dimensions(row)[:2] if 'steel_hooks' in row else
+                             (number(cells[5]) if cells[5].strip() else 0.0,
+                              number(cells[6]) if cells[6].strip() else 0.0))
                 length, kg_m, quantity = engine.ask_sheet_steel(
                     number(cells[4]),
-                    number(cells[5]) if cells[5].strip() else 0.0,
-                    number(cells[6]) if cells[6].strip() else 0.0,
+                    float(hook), float(lap),
                     cells[7].strip(),
                     number(cells[10]),
                     number(cells[3]),
@@ -159,6 +162,9 @@ def calculate(rows, engine):
                 )
                 values[(index, 8)] = engine.ask_sheet_quantity(
                     "m", [("longitud", length)], number(cells[3]), times, None)
+                if 'steel_hooks' in row:
+                    kg_m = number(row['steel_catalog'][cells[7]]['weight'])
+                    quantity = engine.ask_sheet_quantity('und', [], values[(index, 8)], kg_m, None)
                 values[(index, 11)] = kg_m
             else:
                 dimensions = [
@@ -226,7 +232,7 @@ def read_project(path):
 
 
 def validate_project(data):
-    if not isinstance(data, dict) or type(data.get('version')) is not int or data.get("version") not in (1, 2, 3, 4, 5):
+    if not isinstance(data, dict) or type(data.get('version')) is not int or data.get("version") not in (1, 2, 3, 4, 5, 6):
         raise ValueError("Formato de planilla no reconocido.")
     if not isinstance(data.get("title"), str) or not isinstance(data.get("rows"), list):
         raise ValueError("La planilla no contiene un título y filas válidos.")
@@ -247,6 +253,10 @@ def validate_project(data):
         if 'volume_factor' in row and data['version'] < 5:
             raise ValueError('El FE por detalles requiere formato JSON versión 5.')
         validate_swelling(row)
+        if ('steel_catalog' in row or 'steel_hooks' in row) and data['version'] < 6:
+            raise ValueError('El catálogo de acero requiere formato JSON versión 6.')
+        validate_steel(row)
+        sync_dimensions(row)
         if data['version'] >= 2 and 'level' not in row:
             raise ValueError('Falta el nivel de una fila.')
         if row["kind"] == "chapter":
@@ -284,10 +294,11 @@ def write_project(path, title, rows):
     """Atomic replacement keeps an existing project intact if writing fails."""
     from metrado.hierarchy import materialize
     groups = any(row['kind'] == 'detail_group' for row in rows)
+    steel = any('steel_catalog' in row or 'steel_hooks' in row for row in rows)
     blocks = any('volume_factor' in row for row in rows)
     swelling = blocks or any('swelling' in row for row in rows)
-    hierarchical = swelling or groups or any('level' in row for row in rows)
-    data = {"version": 5 if blocks else 4 if swelling else 3 if groups else 2 if hierarchical else 1, "title": title,
+    hierarchical = steel or swelling or groups or any('level' in row for row in rows)
+    data = {"version": 6 if steel else 5 if blocks else 4 if swelling else 3 if groups else 2 if hierarchical else 1, "title": title,
             "rows": materialize(rows) if hierarchical else deepcopy(rows)}
     validate_project(data)
     for row in data["rows"]:
@@ -298,8 +309,13 @@ def write_project(path, title, rows):
         with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent,
                                          prefix=".metrado-", suffix=".tmp", delete=False) as stream:
             temporary = stream.name
-            json.dump(data, stream, ensure_ascii=False, indent=2)
+            # Catalogue snapshots are intentionally self-contained. Compact JSON
+            # keeps a full 10,000-row steel sheet below the import size limit.
+            json.dump(data, stream, ensure_ascii=False, indent=None if steel else 2,
+                      separators=(',', ':') if steel else None)
             stream.flush()
+            if os.fstat(stream.fileno()).st_size > 10_000_000:
+                raise ValueError('La copia JSON supera 10 MB. Guarda la obra en SQLite; no se reemplazó el destino.')
             os.fsync(stream.fileno())
         os.replace(temporary, path)
     finally:

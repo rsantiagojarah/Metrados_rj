@@ -25,6 +25,11 @@ QLabel { background: transparent; }
 QLabel#sheetHeading { color: #edf2f7; font-size: 16px; font-weight: 600; }
 QLabel#sheetHint { color: #a8b4c3; padding: 3px 6px; font-size: 11px; }
 QLabel#sheetNote { color: #8e97a4; font-size: 11px; }
+QLabel#partidaHeading { color: #e1e8f2; font-weight: 600; padding: 4px 6px; }
+QSplitter::handle { background: #303a46; }
+QSplitter::handle:hover { background: #25b9c4; }
+QTreeView#partidaNavigator::item { height: 28px; }
+QTreeView QLineEdit, QTreeView QComboBox { padding: 1px 3px; border-radius: 0; }
 QToolBar { background: #191e26; spacing: 6px; padding: 7px;
     border: 0; border-bottom: 1px solid #29313b; }
 QToolBar::separator { background: #303a46; width: 1px; margin: 4px 5px; }
@@ -35,6 +40,8 @@ QLineEdit#projectTab { color: #e7ebf0; background: #1d232c; font-size: 11px;
     font-weight: 600; border: 1px solid #2c3440; border-bottom: 2px solid #25b9c4;
     border-radius: 0; padding: 0 12px; }
 QToolBar#actionStrip { background: #191e26; border-bottom: 1px solid #29313b; padding: 0 7px; spacing: 1px; }
+QToolBar#organizeStrip { padding: 3px 5px; spacing: 4px; }
+QToolBar#organizeStrip QToolButton { padding: 3px 7px; }
 QWidget#workspaceBand { background: #14181e; border-bottom: 1px solid #252d37; }
 QLabel#workspaceCaption { color: #7d8897; font-size: 8px; font-weight: 600; }
 QLabel#workspaceActive { color: #ffffff; font-size: 8px; font-weight: 600; border-bottom: 2px solid #25b9c4; }

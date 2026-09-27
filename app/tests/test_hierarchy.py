@@ -14,7 +14,7 @@ from PySide6.QtWidgets import QApplication, QLineEdit, QMessageBox
 
 import metrado._enlace as engine
 from metrado.clipboard import ROW_MIME, decode_rows, encode_rows, insert_rows, parse_tsv, tsv
-from metrado.grid import SheetModel, WIDTHS
+from metrado.grid import SheetModel
 from metrado.hierarchy import Outline, change_level, materialize, move_sibling, move_to, renumber
 from metrado.organize import DestinationDialog
 from metrado.sheet import calculate, example_rows, new_row, read_project, validate_project, write_project
@@ -205,6 +205,7 @@ class InteractionTests(unittest.TestCase):
         QApplication.clipboard().clear()
 
     def test_tab_shift_tab_and_alt_arrows(self):
+        widths = [self.window.table.columnWidth(c) for c in range(14)]
         self.window._select(4)
         QTest.keyClick(self.window.table, Qt.Key_Tab)
         APP.processEvents()
@@ -216,7 +217,7 @@ class InteractionTests(unittest.TestCase):
         QTest.keyClick(self.window.table, Qt.Key_Up, Qt.AltModifier)
         APP.processEvents()
         self.assertEqual(self.window.model.rows[1]['cells'][1], 'ESTRUCTURAS')
-        self.assertEqual([self.window.table.columnWidth(c) for c in range(14)], list(WIDTHS))
+        self.assertEqual([self.window.table.columnWidth(c) for c in range(14)], widths)
 
     def test_tab_in_numeric_column_navigates(self):
         self.window._select(3, 4)
@@ -266,19 +267,20 @@ class InteractionTests(unittest.TestCase):
         self.assertEqual(self.window.model.rows[6]['cells'][4], '9')
 
     def test_ctrl_c_v_whole_rows_copies_descendants(self):
-        self.window.table.selectRow(1)
-        self.window.table.setFocus()
-        QTest.keyClick(self.window.table, Qt.Key_C, Qt.ControlModifier)
+        # Titles now live in the left tree, not in the visible detail grid.
+        self.window.navigator.setCurrentIndex(self.window.workspace.outline.for_row(1, 1))
+        self.window.navigator.setFocus()
+        QTest.keyClick(self.window.navigator, Qt.Key_C, Qt.ControlModifier)
         self.assertTrue(QApplication.clipboard().mimeData().hasFormat(ROW_MIME))
         self.window._select(7)
-        QTest.keyClick(self.window.table, Qt.Key_V, Qt.ControlModifier)
+        QTest.keyClick(self.window.navigator, Qt.Key_V, Qt.ControlModifier)
         self.assertEqual(len(self.window.model.rows), 11)
         self.assertEqual(self.window.model.rows[8]['cells'][1], 'CIMENTACIÓN')
         self.assertEqual(self.window.model.outline.parents[8], 7)
 
     def test_ctrl_shift_c_copies_block_from_description(self):
         self.window._select(1)
-        QTest.keyClick(self.window.table, Qt.Key_C, Qt.ControlModifier | Qt.ShiftModifier)
+        QTest.keyClick(self.window.navigator, Qt.Key_C, Qt.ControlModifier | Qt.ShiftModifier)
         self.assertEqual(len(decode_rows(QApplication.clipboard().mimeData().data(ROW_MIME))), 3)
 
     def test_rectangle_copy_paste(self):

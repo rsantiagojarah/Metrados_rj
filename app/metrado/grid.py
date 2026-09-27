@@ -15,6 +15,7 @@ from metrado import theme
 from metrado.hierarchy import Outline
 from metrado.identity import ensure_ids
 from metrado.history import RowEdit, RowStructure
+from metrado import steel_config as sc
 from metrado.swelling import adjusted_volume, factor_text, validate_swelling, volume_blocks, upgrade_legacy
 
 LABELS = ("ÍTEM", "DESCRIPCIÓN", "Und", "Elem.\nsimil.", "Largo", "Ancho", "Alto",
@@ -47,10 +48,13 @@ class SheetModel(QAbstractTableModel):
         ensure_ids(rows)
         upgrade_legacy(rows)
         for row in rows:
+            sc.sync_dimensions(row)
             sync_description(row, engine)
+        self.steel_defaults = None
         self.undo_stack = QUndoStack(self)
         self.undo_stack.setUndoLimit(200)
         self.engine, self.rows = engine, rows
+        self.local_row_numbers = False
         self.values, self.errors = calculate(rows, engine)
         self._fonts = {}
         for textual in (False, True):
@@ -176,7 +180,12 @@ class SheetModel(QAbstractTableModel):
         if role == Qt.TextAlignmentRole and orientation == Qt.Vertical and section in self.swelling_footers:
             return int(Qt.AlignHCenter | Qt.AlignTop)
         if role == Qt.DisplayRole:
-            return getattr(self, "header_labels", LABELS)[section] if orientation == Qt.Horizontal else str(section + 1)
+            if orientation == Qt.Horizontal:
+                return getattr(self, "header_labels", LABELS)[section]
+            if self.local_row_numbers:
+                owner = self._owners[section]
+                return str(section - owner) if owner is not None and section > owner else ''
+            return str(section + 1)
 
     def editable(self, row, column):
         kind = self.rows[row]["kind"]
@@ -188,6 +197,8 @@ class SheetModel(QAbstractTableModel):
             return column in (0, 1, 2)
         unit = self.rows[row]["cells"][2]
         if unit == "kg":
+            if 'steel_hooks' in self.rows[row] and column in (5, 6):
+                return False
             return column in (1, 3, 4, 5, 6, 7, 9)
         return column in (1, 3, 7) or column in [c for c, _ in DIMENSIONS.get(unit, ())]
 
@@ -220,10 +231,23 @@ class SheetModel(QAbstractTableModel):
             return self._colors[theme.SURFACE]
         steel = kind == "detail" and row["cells"][2] == "kg"
         if role == TOOLTIP_ROLE:
+            if steel and 'steel_hooks' in row and c in (5, 6, 10):
+                config = row['steel_hooks']
+                entry = row['steel_catalog'].get(row['cells'][7])
+                if entry:
+                    try:
+                        hooks, laps, count = sc.dimensions(row)
+                        return (f"{config['count']} gancho(s) × {config['override'] or entry['hook']} m = {hooks} m\n"
+                                f"{count} empalme(s) × {entry['lap']} m = {laps} m\n"
+                                f"Peso guardado: {entry['weight']} kg/m. Valores propios de esta fila.\n"
+                                "Empalmes: múltiplos de 9 m superados por largo + ganchos, sin contar empalmes.")
+                    except (ValueError, KeyError):
+                        return 'Completa largo y diámetro. Usa Aplicar ganchos para cambiar los ganchos.'
             if 'volume_factor' in row:
-                return self.swelling_tooltip(self.swelling_bounds(r)[0])
+                description = row['cells'][1] + '\n' if c == 1 else ''
+                return description + self.swelling_tooltip(self.swelling_bounds(r)[0])
             if kind == 'detail_group':
-                return 'Título del desagregado. Agrupa mediciones; no aporta cantidad propia. Tab cambia el nivel.'
+                return row['cells'][1] + '\nTítulo del desagregado. Agrupa mediciones; no aporta cantidad propia. Tab cambia el nivel.'
             if steel and c == 9:
                 return "Elige el diámetro con doble clic o F2. El peso se recalcula automáticamente."
             if steel and c == 1:
@@ -308,6 +332,7 @@ class SheetModel(QAbstractTableModel):
         start = index.row()
         end = self._ends.get(start, start + 1) if index.column() == 2 else start + 1
         for row in self.rows[start:end]:
+            sc.sync_dimensions(row)
             sync_description(row, self.engine)
 
     def _set_data(self, index, value, role=Qt.EditRole):
@@ -325,6 +350,8 @@ class SheetModel(QAbstractTableModel):
             self.recalculate(r)
             return True
         if row["kind"] == "detail" and row["cells"][2] == "kg" and c == 9:
+            if 'steel_hooks' in row and value not in row['steel_catalog']:
+                return False
             if value == row["cells"][7]:
                 return False
             try:
@@ -352,12 +379,17 @@ class SheetModel(QAbstractTableModel):
         if c in (4, 5, 6, 7, 9, 10):
             self.rows[r]["direct"] = ""
         if c == 2:
+            row.pop('steel_catalog', None)
+            if value == 'kg' and self.steel_defaults is not None:
+                sc.adopt(row, self.steel_defaults)
             for child in self.rows[r + 1:]:
                 if child["kind"] not in ('detail', 'detail_group'):
                     break
                 if child['kind'] == 'detail' and child['cells'][2] == 'kg' and value != 'kg':
                     child['cells'][1] = description_base(child['cells'][1])
                 child["cells"][2] = value
+                child.pop('steel_catalog', None)
+                child.pop('steel_hooks', None)
                 if value != 'm3':
                     child.pop('volume_factor', None)
                 if child['kind'] == 'detail_group':
@@ -372,6 +404,8 @@ class SheetModel(QAbstractTableModel):
                     child["cells"][9] = ""
                     child["cells"][10] = ""
                 child["direct"] = ""
+                if value == 'kg' and self.steel_defaults is not None:
+                    sc.adopt(child, row['steel_catalog'])
         self.recalculate(r)
         return True
 
@@ -423,31 +457,39 @@ class SheetModel(QAbstractTableModel):
             return False
         if start_row < 0 or start_column < 0 or start_row + len(matrix) > len(self.rows) or start_column + len(matrix[0]) > 14:
             raise ValueError('El bloque no cabe. Agrega primero las filas necesarias.')
+        return self.paste_mapped_cells(
+            [(start_row + dr, start_column + dc, value) for dr, cells in enumerate(matrix) for dc, value in enumerate(cells)],
+            (start_row, start_column))
+
+    def paste_mapped_cells(self, targets, selection):
+        """Same atomic edit path for visible tree cells and sheet rectangles."""
         staged = SheetModel(self.engine, deepcopy(self.rows))
+        staged.steel_defaults = self.steel_defaults
         staged._batching = True
         changed = editable = False
-        for dr, cells in enumerate(matrix):
-            for dc, value in enumerate(cells):
-                r, c = start_row + dr, start_column + dc
-                if not staged.editable(r, c):
-                    continue
-                editable = True
-                index = staged.index(r, c)
-                if str(staged.data(index, Qt.EditRole) or '') == value.strip():
-                    continue
-                if not staged.setData(index, value):
-                    raise ValueError(f'Valor no admitido en la fila {r + 1}, columna {c + 1}. No se pegó ningún dato.')
-                changed = True
+        for r, c, value in targets:
+            if not 0 <= r < len(self.rows) or not 0 <= c < 14:
+                raise ValueError('El bloque no cabe. Agrega primero las filas necesarias.')
+            if not staged.editable(r, c):
+                continue
+            editable = True
+            index = staged.index(r, c)
+            if str(staged.data(index, Qt.EditRole) or '') == value.strip():
+                continue
+            if not staged.setData(index, value):
+                raise ValueError(f'Valor no admitido en la fila {r + 1}, columna {c + 1}. No se pegó ningún dato.')
+            changed = True
         if not editable:
             raise ValueError('Selecciona celdas editables; los resultados se calculan automáticamente.')
         if changed:
-            self.replace(staged.rows, 'pegado de celdas', (start_row, start_column), (start_row, start_column))
+            self.replace(staged.rows, 'pegado de celdas', selection, selection)
         return changed
 
     def replace(self, rows, label=None, before_selection=None, after_selection=None):
         ensure_ids(rows)
         upgrade_legacy(rows)
         for row in rows:
+            sc.sync_dimensions(row)
             sync_description(row, self.engine)
         if label is not None:
             if rows != self.rows:
@@ -466,6 +508,39 @@ class SheetModel(QAbstractTableModel):
         self._refresh_summary()
         self.endResetModel()
         self.changed.emit()
+
+    def steel_catalog_for(self, index):
+        row = self.rows[index]
+        owner = self._owners[index]
+        return deepcopy(row.get('steel_catalog') or
+                        (self.rows[owner].get('steel_catalog') if owner is not None else None) or
+                        self.steel_defaults or sc.initial_catalog())
+
+    def apply_steel_hooks(self, selected, count, override=None):
+        indexes = sc.selected_details(self.rows, selected)
+        if type(count) is not int or count not in (1, 2):
+            raise ValueError('Elige 1 o 2 ganchos.')
+        if override is not None:
+            sc.number(override)
+        rows = deepcopy(self.rows)
+        for i in indexes:
+            row = rows[i]
+            catalog = self.steel_catalog_for(i)
+            owner = self._owners[i]
+            if owner is not None and 'steel_catalog' not in rows[owner]:
+                sc.adopt(rows[owner], catalog)
+            sc.adopt(row, catalog)
+            row['steel_hooks'] = dict(count=count, override=override)
+            sc.sync_dimensions(row)
+        self.replace(rows, 'aplicación de ganchos', (indexes[0], 1), (indexes[0], 1))
+
+    def update_steel_catalog(self, catalog):
+        sc.validate_catalog(catalog)
+        rows = deepcopy(self.rows)
+        for row in rows:
+            if row['kind'] in ('item', 'detail') and row['cells'][2] == 'kg':
+                sc.adopt(row, catalog, preserve_hooks=True)
+        self.replace(rows, 'actualización de aceros de la obra')
 
     def set_direct(self, index, value):
         if self.rows[index]["kind"] != "detail":
@@ -504,8 +579,11 @@ class GroupedHeader(QHeaderView):
         labels = STEEL_LABELS if self.mode == "steel" else LABELS
 
         def cell(first, last, top, bottom, text, rotate=False):
-            x = self.sectionViewportPosition(first)
-            width = sum(self.sectionSize(i) for i in range(first, last + 1))
+            visible = [i for i in range(first, last + 1) if not self.isSectionHidden(i)]
+            if not visible:
+                return
+            x = self.sectionViewportPosition(visible[0])
+            width = sum(self.sectionSize(i) for i in visible)
             rect = QRect(x, top, width, bottom - top)
             painter.setPen(QPen(QColor(theme.BORDER), 1))
             painter.drawRect(rect.adjusted(0, 0, -1, -1))
@@ -602,6 +680,12 @@ class SheetDelegate(QStyledItemDelegate):
 
 
 class SheetView(QTableView):
+    focusEntered = Signal()
+
+    def focusInEvent(self, event):
+        self.focusEntered.emit()
+        super().focusInEvent(event)
+
     def commit_editor(self):
         """Include an in-progress cell edit in Save, Close and structural actions."""
         editor = QApplication.focusWidget()
@@ -618,13 +702,15 @@ class SheetView(QTableView):
     swellingRequested = Signal(int)
     def __init__(self, model):
         super().__init__()
+        self._compact = False
+        self._fit_width = None
         self.setModel(model)
         self.setHorizontalHeader(GroupedHeader(self))
         self.setItemDelegate(SheetDelegate(self))
         self.setShowGrid(False)
         self.setAlternatingRowColors(False)
         self.setWordWrap(False)
-        self.setSelectionMode(QTableView.ContiguousSelection)
+        self.setSelectionMode(QTableView.ExtendedSelection)
         self.setEditTriggers(QTableView.DoubleClicked | QTableView.EditKeyPressed | QTableView.AnyKeyPressed)
         self.setHorizontalScrollMode(QTableView.ScrollPerPixel)
         self.verticalHeader().setDefaultSectionSize(ROW_HEIGHT)
@@ -641,6 +727,36 @@ class SheetView(QTableView):
         self.model().footersChanged.connect(self.sync_footers)
         self.sync_footers()
         self.sync_header(self.currentIndex())
+
+    def enable_compact_layout(self):
+        """Keep model indexes intact; fit only when the viewport width changes."""
+        self._compact = True
+        # Reserve the scrollbar even for short partidas: selection must not
+        # change available width and consequently resize every column.
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+        for column in (0, 2, 13):
+            self.setColumnHidden(column, True)
+        self.fit_columns()
+
+    def visible_columns(self):
+        return [c for c in range(self.model().columnCount()) if not self.isColumnHidden(c)]
+
+    def fit_columns(self):
+        if not self._compact:
+            return
+        available = self.viewport().width()
+        if available == self._fit_width:
+            return
+        self._fit_width = available
+        widths = {3: 42, 4: 58, 5: 58, 6: 58, 7: 42,
+                  8: 60, 9: 60, 10: 60, 11: 60, 12: 60}
+        for column, width in widths.items():
+            self.setColumnWidth(column, width)
+        self.setColumnWidth(1, max(160, available - sum(widths.values())))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.fit_columns()
 
     def _keep_footer_height(self, row, old_size, new_size):
         if row in self.model().swelling_footers and new_size < ROW_HEIGHT + FOOTER_HEIGHT:

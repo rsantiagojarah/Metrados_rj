@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
 )
 
 from metrado.grid import SheetModel, SheetView
-from metrado.chrome import add_action, action_toolbar, header_toolbar, workspace_band
+from metrado.chrome import add_action, action_toolbar, header_toolbar
 from metrado.theme import apply_theme
 from metrado.sheet import (
     example_rows, new_row, parent_item, subtree_end, write_project,
@@ -24,23 +24,34 @@ from metrado.organize import DestinationDialog
 from metrado.database import open_document, write_database
 from metrado.history import ProjectTitle
 from metrado.swelling_dialog import SwellingDialog
+from metrado.navigation import PartidaWorkspace
+from metrado import steel_config as sc
+from metrado.steel_store import CatalogStore
+from metrado.steel_dialog import CatalogDialog, HooksDialog
 
 
 class PlantillaWindow(QMainWindow):
-    def __init__(self, enlace):
+    def __init__(self, enlace, catalog_store=None):
         super().__init__()
         self._enlace, self._path, self._dirty = enlace, None, False
         self._revision = None
         self.resize(1480, 780)
         self.setMinimumSize(900, 480)
         self.model = SheetModel(enlace, example_rows())
+        self.catalog_store = catalog_store or CatalogStore()
+        self._catalog_error = None
+        try:
+            self.model.steel_defaults, _ = self.catalog_store.read()
+        except (OSError, ValueError, sqlite3.Error) as error:
+            self._catalog_error = str(error)
         self.model.setParent(self)
         self.table = SheetView(self.model)
+        self.workspace = PartidaWorkspace(self.model, self.table, self)
+        self.navigator = self.workspace.navigator
         central = QWidget()
         layout = QVBoxLayout(central)
         layout.setContentsMargins(6, 0, 6, 6)
-        layout.setSpacing(6)
-        layout.addWidget(workspace_band())
+        layout.setSpacing(3)
         self.title_edit = QLineEdit("Ejemplo de planilla de metrado")
         self._committed_title = self.title_edit.text()
         self.title_edit.setPlaceholderText("Nombre de la obra o proyecto")
@@ -49,7 +60,7 @@ class PlantillaWindow(QMainWindow):
         hint.setObjectName("sheetHint")
         hint.setWordWrap(True)
         layout.addWidget(hint)
-        layout.addWidget(self.table, 1)
+        layout.addWidget(self.workspace, 1)
         note = QLabel("Acero: Lon. = Elem. simil. × (Largo + gancho + empalme) × N.º de veces; Kg = Lon. × kg/m. Totales por partida.")
         note.setObjectName("sheetNote")
         note.setWordWrap(True)
@@ -76,6 +87,8 @@ class PlantillaWindow(QMainWindow):
         self._organize_actions()
         self._history_actions()
         self._swelling_actions()
+        self._steel_actions()
+        self._navigation_actions()
         self.model.changed.connect(self._changed)
         self.title_edit.textEdited.connect(self._changed)
         self.title_edit.editingFinished.connect(self._commit_title)
@@ -92,6 +105,8 @@ class PlantillaWindow(QMainWindow):
         index = first_steel_item(self.model.rows)
         if index is not None:
             self._select(index)
+        elif self.workspace.outline.node_rows:
+            self._select(self.workspace.outline.node_rows[0])
 
     def _action(self, toolbar, text, callback, shortcut=None):
         return add_action(self, toolbar, text, callback, shortcut)
@@ -135,6 +150,11 @@ class PlantillaWindow(QMainWindow):
 
     def _selection_status(self, *args):
         index = self.table.currentIndex()
+        if hasattr(self, 'hooks_action'):
+            row = index.row()
+            self.hooks_action.setEnabled(
+                index.isValid() and self.model.rows[row]['kind'] == 'detail' and
+                self.model.rows[row]['cells'][2] == 'kg' and not self.model.rows[row]['direct'])
         if hasattr(self, 'swelling_action'):
             self.swelling_action.setEnabled(self.model.swelling_owner(index.row()) is not None)
         if hasattr(self, 'row_actions'):
@@ -162,10 +182,24 @@ class PlantillaWindow(QMainWindow):
             self.statusBar().showMessage(message)
 
     def _select(self, row, column=1):
-        index = self.model.index(row, column)
-        self.table.setCurrentIndex(index)
-        self.table.scrollTo(index)
-        self.table.setFocus()
+        self.workspace.select(row, column)
+
+    def _commit_editors(self):
+        self.workspace.commit_editors()
+
+    def _navigation_actions(self):
+        for action in [*self.row_actions.values(), self.undo_action, self.redo_action]:
+            self.navigator.addAction(action)
+        self.navigator.levelRequested.connect(self.indent_row)
+        self.navigator.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.navigator.customContextMenuRequested.connect(self._navigation_menu)
+
+    def _navigation_menu(self, point):
+        index = self.navigator.indexAt(point)
+        if index.isValid() and not self.navigator.selectionModel().isSelected(index):
+            self.navigator.setCurrentIndex(index)
+        self.workspace.navigation_active = True
+        self._context_menu(point, self.navigator)
 
     def _organize_actions(self):
         toolbar = QToolBar('Organizar', self)
@@ -216,9 +250,10 @@ class PlantillaWindow(QMainWindow):
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._context_menu)
 
-    def _context_menu(self, point):
-        index = self.table.indexAt(point)
-        footer_owner = self.table.footer_owner_at(point)
+    def _context_menu(self, point, view=None):
+        view = view or self.table
+        index = self.table.indexAt(point) if view is self.table else self.table.currentIndex()
+        footer_owner = self.table.footer_owner_at(point) if view is self.table else None
         if footer_owner is not None:
             index = self.model.index(footer_owner, 1)
         if index.isValid() and not self.table.selectionModel().isSelected(index):
@@ -235,9 +270,72 @@ class PlantillaWindow(QMainWindow):
         menu.addActions(list(self.row_actions.values()))
         menu.addSeparator()
         menu.addAction(self.swelling_action)
+        menu.addAction(self.hooks_action)
         menu.addSeparator()
         menu.addAction('Eliminar bloque…', self.remove_row)
-        menu.exec(self.table.viewport().mapToGlobal(point))
+        menu.exec(view.viewport().mapToGlobal(point))
+
+    def _steel_actions(self):
+        menu = self.menuBar().addMenu('Acero')
+        self.catalog_action = menu.addAction('Tabla global de aceros…', self.edit_steel_catalog)
+        self.hooks_action = menu.addAction('Aplicar ganchos…', self.edit_steel_hooks)
+        menu.addSeparator()
+        self.update_steel_action = menu.addAction('Actualizar aceros de esta obra…', self.update_project_steel)
+        self.hooks_action.setToolTip('Selecciona detalles de acero y aplica 1 o 2 ganchos. Reemplaza los anteriores.')
+        toolbar = self.findChild(QToolBar, 'organizeStrip')
+        toolbar.addSeparator()
+        toolbar.addAction(self.hooks_action)
+        if self._catalog_error:
+            self.catalog_action.setToolTip(self._catalog_error)
+
+    def edit_steel_catalog(self):
+        self._commit_editors()
+        try:
+            catalog, revision = self.catalog_store.read()
+            dialog = CatalogDialog(catalog, self)
+            if dialog.exec() != QDialog.Accepted:
+                return
+            catalog = dialog.configuration()
+            self.catalog_store.save(catalog, revision)
+            self.model.steel_defaults = catalog
+            self._catalog_error = None
+            self.statusBar().showMessage('Tabla global guardada. Los valores de esta obra no se modificaron.', 8000)
+        except (OSError, ValueError, sqlite3.Error) as error:
+            QMessageBox.warning(self, 'Tabla global de aceros', str(error))
+
+    def edit_steel_hooks(self):
+        self._commit_editors()
+        selected = {i.row() for i in self.table.selectionModel().selectedIndexes()
+                    if not self.table.isRowHidden(i.row())}
+        try:
+            indexes = sc.selected_details(self.model.rows, selected)
+            if self._catalog_error and any('steel_catalog' not in self.model.rows[i] and
+                    'steel_catalog' not in self.model.rows[self.model._owners[i]] for i in indexes):
+                raise ValueError('No se pudo leer la tabla global: ' + self._catalog_error)
+            dialog = HooksDialog([self.model.rows[i] for i in indexes],
+                                 [self.model.steel_catalog_for(i) for i in indexes], self)
+            if dialog.exec() == QDialog.Accepted:
+                count, override = dialog.configuration()
+                self.model.apply_steel_hooks(indexes, count, override)
+        except ValueError as error:
+            QMessageBox.information(self, 'Aplicar ganchos', str(error))
+
+    def update_project_steel(self):
+        self._commit_editors()
+        try:
+            catalog, _ = self.catalog_store.read()
+            answer = QMessageBox.question(self, 'Actualizar aceros de esta obra',
+                'Se actualizarán los pesos y empalmes de todas las partidas de acero de ESTA obra. '
+                'Los empalmes se calcularán automáticamente por tramos de 9 m. '
+                'Se conservarán las longitudes personalizadas de gancho y las cantidades directas.\n\n'
+                'Las otras obras no se modificarán. Puedes deshacer con Ctrl+Z. ¿Continuar?',
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if answer == QMessageBox.Yes:
+                self.model.update_steel_catalog(catalog)
+                self.model.steel_defaults = catalog
+                self._catalog_error = None
+        except (OSError, ValueError, sqlite3.Error) as error:
+            QMessageBox.warning(self, 'Actualizar aceros', str(error))
 
     def _swelling_actions(self):
         self.swelling_action = QAction('Factor de esponjamiento…', self)
@@ -251,8 +349,8 @@ class PlantillaWindow(QMainWindow):
         self.table.swellingRequested.connect(self.edit_swelling)
 
     def edit_swelling(self, owner=None):
-        self.table.commit_editor()
-        selected = ({i.row() for i in self.table.selectionModel().selectedIndexes()}
+        self._commit_editors()
+        selected = ({i.row() for i in self.table.selectionModel().selectedIndexes() if not self.table.isRowHidden(i.row())}
                     if owner is None else {owner})
         try:
             start, end = self.model.swelling_selection(selected)
@@ -274,7 +372,7 @@ class PlantillaWindow(QMainWindow):
         dialog.deleteLater()
 
     def _apply_structure(self, operation, *args):
-        self.table.commit_editor()
+        self._commit_editors()
         index = self.table.currentIndex()
         if not index.isValid():
             return
@@ -306,8 +404,18 @@ class PlantillaWindow(QMainWindow):
         dialog.deleteLater()
 
     def copy_selection(self, whole_rows=False):
+        if self.workspace.navigation_active:
+            selected = self.navigator.selectionModel().selectedRows()
+            if selected:
+                try:
+                    mime = encode_rows(self.model, {self.workspace.outline.source_row(i) for i in selected})
+                    QApplication.clipboard().setMimeData(mime)
+                    self.statusBar().showMessage('Bloque copiado con todos sus detalles. Selecciona destino y pulsa Ctrl+V.', 6000)
+                except ValueError as error:
+                    QMessageBox.warning(self, 'No se pudo copiar', str(error))
+            return
         selection = self.table.selectionModel()
-        indexes = selection.selectedIndexes()
+        indexes = [i for i in selection.selectedIndexes() if not self.table.isRowHidden(i.row())]
         if not indexes:
             return
         try:
@@ -318,14 +426,15 @@ class PlantillaWindow(QMainWindow):
             else:
                 top, bottom = min(i.row() for i in indexes), max(i.row() for i in indexes)
                 left, right = min(i.column() for i in indexes), max(i.column() for i in indexes)
-                matrix = [[cell_text(self.model, r, c) for c in range(left, right + 1)] for r in range(top, bottom + 1)]
+                columns = [c for c in self.table.visible_columns() if left <= c <= right]
+                matrix = [[cell_text(self.model, r, c) for c in columns] for r in range(top, bottom + 1)]
                 QApplication.clipboard().setText(tsv(matrix))
                 self.statusBar().showMessage('Celdas copiadas. Para copiar un bloque completo, usa Ctrl+Mayús+C.', 6000)
         except ValueError as error:
             QMessageBox.warning(self, 'No se pudo copiar', str(error))
 
     def paste_selection(self):
-        self.table.commit_editor()
+        self._commit_editors()
         mime = QApplication.clipboard().mimeData()
         if mime is None:
             return
@@ -338,13 +447,27 @@ class PlantillaWindow(QMainWindow):
                                    (current.row(), current.column()), (position, 1))
                 self._select(position)
             elif mime.hasText() and current.isValid():
-                self.model.paste_cells(current.row(), current.column(), parse_tsv(mime.text()))
+                matrix = parse_tsv(mime.text())
+                if not matrix:
+                    return
+                if self.workspace.navigation_active:
+                    self.workspace.paste_outline(matrix)
+                    return
+                owner = self.model.outline.owners[current.row()]
+                if owner is None or current.row() + len(matrix) > self.model.outline.ends[owner]:
+                    raise ValueError('El bloque supera la partida visible. Agrega primero sus filas de detalle; no se modificaron otras partidas.')
+                columns = [c for c in self.table.visible_columns() if c >= current.column()]
+                if any(len(cells) > len(columns) for cells in matrix):
+                    raise ValueError('El bloque supera las columnas visibles de la planilla.')
+                targets = [(current.row() + offset, columns[c], value)
+                           for offset, cells in enumerate(matrix) for c, value in enumerate(cells)]
+                self.model.paste_mapped_cells(targets, (current.row(), current.column()))
                 self._select(current.row(), current.column())
         except ValueError as error:
             QMessageBox.warning(self, 'No se pudo pegar', str(error))
 
     def add_row(self, kind):
-        self.table.commit_editor()
+        self._commit_editors()
         rows = materialize(self.model.rows)
         if len(rows) >= MAX_ROWS:
             self.statusBar().showMessage('La planilla admite hasta 10 000 filas.', 5000)
@@ -400,6 +523,13 @@ class PlantillaWindow(QMainWindow):
             level = outline.levels[selected] if selected_kind == 'detail' else outline.levels[selected] + 1
             row = new_row(kind, description="Nuevo detalle", unit=rows[parent]["cells"][2],
                           level=level)
+            if row['cells'][2] == 'kg':
+                if self._catalog_error and 'steel_catalog' not in rows[parent]:
+                    QMessageBox.warning(self, 'Tabla de aceros', self._catalog_error)
+                    return
+                catalog = rows[parent].get('steel_catalog') or self.model.steel_defaults
+                sc.adopt(rows[parent], catalog)
+                sc.adopt(row, catalog)
         rows.insert(position, row)
         try:
             rows = renumber(rows)
@@ -408,10 +538,10 @@ class PlantillaWindow(QMainWindow):
             return
         self.model.replace(rows, 'creación de fila', (selected, 1), (position, 1))
         self._select(position)
-        self.table.edit(self.model.index(position, 1))
+        self.workspace.edit_description(position)
 
     def remove_row(self):
-        self.table.commit_editor()
+        self._commit_editors()
         index = self.table.currentIndex().row()
         if index < 0:
             return
@@ -428,7 +558,7 @@ class PlantillaWindow(QMainWindow):
             self._select(min(index, len(rows) - 1))
 
     def direct_quantity(self):
-        self.table.commit_editor()
+        self._commit_editors()
         index = self.table.currentIndex().row()
         if index < 0 or self.model.rows[index]["kind"] != "detail":
             QMessageBox.information(self, "Cantidad directa", "Selecciona una fila de detalle.")
@@ -451,7 +581,7 @@ class PlantillaWindow(QMainWindow):
         self._select(index)
 
     def _can_discard(self):
-        self.table.commit_editor()
+        self._commit_editors()
         if not self._dirty:
             return True
         answer = QMessageBox.question(self, "Cambios sin guardar", "¿Guardar los cambios de esta planilla?",
@@ -498,7 +628,7 @@ class PlantillaWindow(QMainWindow):
             self.statusBar().showMessage('JSON importado. Guardar creará una base SQLite; el original se conserva.', 10000)
 
     def save_project(self, save_as=False):
-        self.table.commit_editor()
+        self._commit_editors()
         self._commit_title()
         path = self._path
         if save_as or path is None:
@@ -528,7 +658,7 @@ class PlantillaWindow(QMainWindow):
         return True
 
     def export_json(self):
-        self.table.commit_editor()
+        self._commit_editors()
         filename, _ = QFileDialog.getSaveFileName(self, 'Exportar copia JSON', 'Planilla.metrado.json',
                                                 'Intercambio JSON (*.metrado.json)')
         if not filename:

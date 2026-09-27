@@ -14,7 +14,7 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 
 import metrado._enlace as engine
 from metrado.clipboard import ROW_MIME, decode_rows, encode_rows, insert_rows
-from metrado.grid import SheetModel, WIDTHS
+from metrado.grid import SheetModel
 from metrado.hierarchy import Outline, change_level, move_sibling, move_to, renumber
 from metrado.organize import DestinationDialog
 from metrado.sheet import calculate, new_row, read_project, steel_detail, validate_project, write_project
@@ -237,6 +237,7 @@ class GroupInteractionTests(unittest.TestCase):
 
     def test_toolbar_title_subtitle_and_details(self):
         from metrado.chrome import ActionButton
+        widths = [self.window.table.columnWidth(c) for c in range(14)]
         self.window._select(5)
         button = next(b for b in self.window.findChildren(ActionButton)
                       if b.accessibleName() == '+ Título de detalle')
@@ -252,7 +253,7 @@ class GroupInteractionTests(unittest.TestCase):
         detail = self.window.table.currentIndex().row()
         self.assertEqual(self.window.model.outline.parents[detail], subgroup)
         self.assertEqual(self.window.model.rows[detail]['cells'][2], 'm3')
-        self.assertEqual([self.window.table.columnWidth(c) for c in range(14)], list(WIDTHS))
+        self.assertEqual([self.window.table.columnWidth(c) for c in range(14)], widths)
 
     def test_add_detail_from_nested_selection_keeps_its_group(self):
         self.window._select(7)

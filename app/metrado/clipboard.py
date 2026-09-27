@@ -51,8 +51,12 @@ def encode_rows(model, selected):
         summary[10] = 'Pendiente' if total is None else f'{total:.2f}'
         text.insert(end + 1, summary)
     mime = QMimeData()
-    version = 4 if any('volume_factor' in row for row in block) else 3 if any('swelling' in row for row in block) else 2 if any(row['kind'] == 'detail_group' for row in block) else 1
-    mime.setData(ROW_MIME, json.dumps({'version': version, 'rows': block}, ensure_ascii=False).encode('utf-8'))
+    version = 5 if any('steel_catalog' in row for row in block) else 4 if any('volume_factor' in row for row in block) else 3 if any('swelling' in row for row in block) else 2 if any(row['kind'] == 'detail_group' for row in block) else 1
+    payload = json.dumps({'version': version, 'rows': block}, ensure_ascii=False,
+                         separators=(',', ':') if version == 5 else None).encode('utf-8')
+    if len(payload) > MAX_BYTES:
+        raise ValueError('La selección supera 10 MB. Copia un bloque más pequeño.')
+    mime.setData(ROW_MIME, payload)
     mime.setText(tsv(text))
     return mime
 
@@ -88,7 +92,7 @@ def decode_rows(raw):
         raise ValueError('El portapapeles supera el límite de 10 MB.')
     try:
         data = json.loads(bytes(raw).decode('utf-8'))
-        if not isinstance(data, dict) or data.get('version') not in (1, 2, 3, 4) or not isinstance(data.get('rows'), list):
+        if not isinstance(data, dict) or data.get('version') not in (1, 2, 3, 4, 5) or not isinstance(data.get('rows'), list):
             raise ValueError('Formato de filas no reconocido.')
         rows = data['rows']
         if not rows or len(rows) > MAX_ROWS:
@@ -99,11 +103,14 @@ def decode_rows(raw):
             raise ValueError('El bloque copiado debe empezar en el nivel principal.')
         swelling = any('swelling' in row for row in rows)
         blocks = any('volume_factor' in row for row in rows)
+        steel = any('steel_catalog' in row or 'steel_hooks' in row for row in rows)
+        if steel and data['version'] < 5:
+            raise ValueError('El acero configurado requiere portapapeles versión 5.')
         if blocks and data['version'] < 4:
             raise ValueError('El FE por detalles requiere portapapeles versión 4.')
         if swelling and data['version'] < 3:
             raise ValueError('El bloque con esponjamiento requiere una versión de portapapeles más reciente.')
-        version = 5 if blocks else 4 if swelling else 3 if any(row['kind'] == 'detail_group' for row in rows) else 2
+        version = 6 if steel else 5 if blocks else 4 if swelling else 3 if any(row['kind'] == 'detail_group' for row in rows) else 2
         if rows[0]['kind'] in MEASUREMENT_KINDS:
             if any(row['kind'] not in MEASUREMENT_KINDS or
                    row['cells'][2] != rows[0]['cells'][2] for row in rows):

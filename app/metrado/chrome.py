@@ -30,7 +30,7 @@ class ActionButton(QToolButton):
         self.symbol, self.caption, width = SPECS[action.text()]
         self.setDefaultAction(action)
         self.setAccessibleName(action.text())
-        self.setFixedSize(width, 42)
+        self.setFixedSize(width, 36)
         self.setFocusPolicy(Qt.StrongFocus)
         self.setAutoRaise(True)
         self.setMouseTracking(True)
@@ -47,12 +47,12 @@ class ActionButton(QToolButton):
         icon_font.setPixelSize(14)
         painter.setFont(icon_font)
         painter.setPen(QColor("#ffffff" if hovered else "#b4bbc5" if self.isEnabled() else "#5f6b79"))
-        painter.drawText(QRect(0, 4, self.width(), 19), Qt.AlignCenter, self.symbol)
+        painter.drawText(QRect(0, 1, self.width(), 18), Qt.AlignCenter, self.symbol)
         label_font = QFont("Segoe UI")
         label_font.setPixelSize(9)
         painter.setFont(label_font)
         painter.setPen(QColor("#ffffff" if hovered else "#9ca5b2" if self.isEnabled() else "#5f6b79"))
-        painter.drawText(QRect(0, 23, self.width(), 15), Qt.AlignCenter, self.caption)
+        painter.drawText(QRect(0, 19, self.width(), 15), Qt.AlignCenter, self.caption)
         if self.hasFocus():
             painter.setPen(QPen(QColor("#25b9c4"), 1))
             painter.drawLine(6, self.height() - 2, self.width() - 6, self.height() - 2)
@@ -109,7 +109,7 @@ def action_toolbar(window):
     toolbar = QToolBar("Acciones", window)
     toolbar.setObjectName("actionStrip")
     toolbar.setMovable(False)
-    toolbar.setFixedHeight(44)
+    toolbar.setFixedHeight(38)
     window.addToolBar(toolbar)
     return toolbar
 

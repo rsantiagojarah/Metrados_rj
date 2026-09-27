@@ -1,7 +1,8 @@
 """Versioned, relational SQLite project files. No connection survives a save/open.
 
 Inputs remain text to preserve decimal commas and unfinished edits losslessly.
-Calculated quantities are deliberately not persisted (the Rust engine owns them).
+Calculated quantities are not persisted. Managed hook/lap cells are only display
+caches: steel_catalog and steel_hooks are authoritative and rebuild them on load.
 """
 from contextlib import closing, contextmanager
 import os
@@ -13,9 +14,10 @@ from metrado.hierarchy import MAX_ROWS, Outline, materialize
 from metrado.identity import ensure_ids
 from metrado.sheet import read_project, validate_project
 from metrado.swelling import upgrade_legacy
+from metrado.steel_config import FIELDS
 
 APPLICATION_ID = 0x4D455452  # METR
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 SQLITE_HEADER = b'SQLite format 3\x00'
 # Visible columns and steel-specific inputs are explicit, queryable SQL columns.
 INPUT_COLUMNS = ('code', 'description', 'unit', 'similar_elements', 'length',
@@ -63,7 +65,7 @@ def _check_schema(connection):
     if connection.execute('PRAGMA application_id').fetchone()[0] != APPLICATION_ID:
         raise ValueError('Este archivo no es una base de datos de Metrados.')
     version = connection.execute('PRAGMA user_version').fetchone()[0]
-    if version not in (1, 2, SCHEMA_VERSION):
+    if version not in (1, 2, 3, SCHEMA_VERSION):
         raise ValueError('Versión de base de datos no compatible. No se modificó el archivo.')
     return version
 
@@ -85,6 +87,40 @@ def _create_detail_factors(connection):
         note TEXT NOT NULL
     )''')
     connection.execute('CREATE INDEX detail_swelling_block ON detail_swelling(block_id)')
+
+
+def _create_steel_tables(connection):
+    connection.execute('''CREATE TABLE steel_catalog (
+        node_id TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+        diameter TEXT NOT NULL, weight TEXT NOT NULL, hook TEXT NOT NULL, lap TEXT NOT NULL,
+        PRIMARY KEY(node_id, diameter)
+    )''')
+    connection.execute('''CREATE TABLE steel_hooks (
+        node_id TEXT PRIMARY KEY NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+        count INTEGER NOT NULL CHECK(count IN (0, 1, 2)), override TEXT
+    )''')
+
+
+def _sync_steel(connection, rows):
+    entries, hooks = {}, {}
+    for row in rows:
+        for dia, entry in row.get('steel_catalog', {}).items():
+            entries[(row['id'], dia)] = (row['id'], dia, *(entry[f] for f in FIELDS))
+        if 'steel_hooks' in row:
+            config = row['steel_hooks']
+            hooks[(row['id'],)] = (row['id'], config['count'], config['override'])
+    changed = False
+    for table, keys, desired in (('steel_catalog', ('node_id', 'diameter'), entries),
+                                  ('steel_hooks', ('node_id',), hooks)):
+        old = {record[:len(keys)]: record for record in connection.execute(f'SELECT * FROM {table}')}
+        removed = [key for key in old if key not in desired]
+        updates = [record for key, record in desired.items() if old.get(key) != record]
+        where = ' AND '.join(key + '=?' for key in keys)
+        connection.executemany(f'DELETE FROM {table} WHERE {where}', removed)
+        marks = ','.join('?' for _ in range(5 if table == 'steel_catalog' else 3))
+        connection.executemany(f'INSERT OR REPLACE INTO {table} VALUES ({marks})', updates)
+        changed |= bool(removed or updates)
+    return changed
 
 
 def _create_schema(connection):
@@ -111,6 +147,7 @@ def _create_schema(connection):
     connection.execute('CREATE INDEX nodes_kind_unit ON nodes(kind, unit)')
     _create_swelling_table(connection)
     _create_detail_factors(connection)
+    _create_steel_tables(connection)
 
 
 def read_database(path):
@@ -149,7 +186,16 @@ def read_database(path):
                 if detail_id not in by_id:
                     raise ValueError('El FE contiene una referencia inválida.')
                 by_id[detail_id]['volume_factor'] = dict(block=block, factor=factor, note=note)
-        title, rows = validate_project(dict(version=5, title=project[0], rows=rows))
+        if version >= 4:
+            for node_id, diameter, weight, hook, lap in connection.execute('SELECT * FROM steel_catalog'):
+                if node_id not in by_id:
+                    raise ValueError('El catálogo de acero contiene una referencia inválida.')
+                by_id[node_id].setdefault('steel_catalog', {})[diameter] = dict(weight=weight, hook=hook, lap=lap)
+            for node_id, count, override in connection.execute('SELECT * FROM steel_hooks'):
+                if node_id not in by_id:
+                    raise ValueError('Los ganchos contienen una referencia inválida.')
+                by_id[node_id]['steel_hooks'] = dict(count=count, override=override)
+        title, rows = validate_project(dict(version=6, title=project[0], rows=rows))
         upgrade_legacy(rows)
         outline = Outline(rows, strict=True)
         if any(parent != (rows[index]['id'] if index is not None else None)
@@ -175,7 +221,7 @@ def write_database(path, title, rows, expected_revision=None):
     Omit it only for an explicitly chosen Save As destination.
     """
     normalized = materialize(rows)
-    validate_project(dict(version=5, title=title, rows=normalized))
+    validate_project(dict(version=6, title=title, rows=normalized))
     upgrade_legacy(normalized)
     ensure_ids(normalized)
     outline = Outline(normalized, strict=True)
@@ -214,7 +260,10 @@ def write_database(path, title, rows, expected_revision=None):
             if migrated:
                 if version < 2:
                     _create_swelling_table(connection)
-                _create_detail_factors(connection)
+                if version < 3:
+                    _create_detail_factors(connection)
+                if version < 4:
+                    _create_steel_tables(connection)
                 connection.execute(f'PRAGMA user_version = {SCHEMA_VERSION}')
             old_swelling = {record[0]: record for record in connection.execute('SELECT item_id, enabled, percent, note FROM item_swelling')}
             old_factors = {record[0]: record for record in connection.execute('SELECT detail_id, block_id, factor, note FROM detail_swelling')}
@@ -239,7 +288,8 @@ def write_database(path, title, rows, expected_revision=None):
             connection.executemany('DELETE FROM detail_swelling WHERE detail_id=?', removed_factors)
             connection.executemany('''INSERT INTO detail_swelling VALUES (?, ?, ?, ?)
                 ON CONFLICT(detail_id) DO UPDATE SET block_id=excluded.block_id, factor=excluded.factor, note=excluded.note''', changed_factors)
-            if deleted or updates or old_title != title or migrated or removed_swelling or changed_swelling or removed_factors or changed_factors:
+            changed_steel = _sync_steel(connection, normalized)
+            if deleted or updates or old_title != title or migrated or removed_swelling or changed_swelling or removed_factors or changed_factors or changed_steel:
                 revision += 1
                 connection.execute('UPDATE project SET title=?, revision=? WHERE singleton=1', (title, revision))
             connection.commit()
