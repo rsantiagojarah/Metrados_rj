@@ -177,7 +177,7 @@ Las aclaraciones, fórmulas, atajos y estado comparten **una sola línea inferio
 
 **Ctrl+K** abre el buscador de comandos: puedes crear filas, moverlas, abrir formularios, guardar, expandir/contraer títulos y ejecutar las demás acciones sin memorizar sus combinaciones. Las acciones no disponibles para la selección se muestran desactivadas. Reutiliza las mismas acciones y confirmaciones de los menús; no existe un segundo cálculo ni otro historial.
 
-**F1** abre la ayuda de atajos con filtro. También están disponibles los menús **Navegar** y **Ayuda**, y los atajos de cada acción aparecen en sus menús y avisos al pasar el cursor. Los atajos son predefinidos; no se incluye todavía un editor de combinaciones personalizadas.
+**F1** abre la ayuda de atajos con filtro. En **Ayuda → Configurar atajos…** —predeterminado: **Ctrl+Alt+K**— puedes buscar cualquier acción, asignarle hasta dos combinaciones, quitar sus atajos o restaurar todos los valores predeterminados. Los cambios se validan para evitar duplicados, se aplican al instante y se guardan globalmente para todas las obras. Enter, Esc, Tab, F2 y las teclas propias de edición y navegación de la planilla permanecen reservadas para que ninguna configuración impida editar.
 
 Cambiar de panel o abrir un buscador confirma la celda en edición antes de salir. **Esc dentro de una celda cancela esa edición**, sin cambiar de panel; Ctrl+C/V/Z conservan su función sobre el texto. Los formularios abiertos bloquean los comandos de la ventana principal. Los atajos de ganchos y FE actúan desde la planilla fuera del editor y respetan la selección. **Mayús+Espacio** selecciona la fila completa; **Mayús+flechas** amplía una selección. Tab/Mayús+Tab conservan su función de nivel solamente en Ítem/Descripción fuera de edición.
 
@@ -189,6 +189,7 @@ Cambiar de panel o abrir un buscador confirma la celda en edición antes de sali
 | Partida anterior / siguiente | Ctrl+RePág / Ctrl+AvPág |
 | Buscar partida / comando | Ctrl+F / Ctrl+K |
 | Ayuda de atajos | F1 |
+| Configurar atajos | Ctrl+Alt+K |
 | Editar nombre de la obra | Ctrl+L |
 | Primera / última fila visible del panel | Ctrl+Inicio / Ctrl+Fin |
 | Seleccionar fila / todo el panel | Mayús+Espacio / Ctrl+A |

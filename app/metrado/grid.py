@@ -3,7 +3,7 @@ from copy import deepcopy
 from uuid import uuid4
 
 from PySide6.QtCore import QAbstractTableModel, QEvent, QItemSelection, QItemSelectionModel, QModelIndex, QRect, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QKeySequence, QPainter, QPen, QUndoStack
+from PySide6.QtGui import QColor, QFont, QPainter, QPen, QUndoStack
 from PySide6.QtWidgets import QApplication, QAbstractItemDelegate, QComboBox, QHeaderView, QStyleOptionViewItem, QStyledItemDelegate, QTableView
 
 from metrado.sheet import DIMENSIONS, UNITS, calculate, _calculate_plain
@@ -956,10 +956,6 @@ class SheetView(QTableView):
     def keyPressEvent(self, event):
         if event.text() == '/' and self.currentIndex().column() == 1:
             self.referenceRequested.emit(self.currentIndex().row())
-        elif event.matches(QKeySequence.Copy):
-            self.clipboardRequested.emit('copy')
-        elif event.matches(QKeySequence.Paste):
-            self.clipboardRequested.emit('paste')
         else:
             return super().keyPressEvent(event)
         event.accept()

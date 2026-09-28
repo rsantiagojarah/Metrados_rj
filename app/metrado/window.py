@@ -31,13 +31,14 @@ from metrado.steel_dialog import CatalogDialog, DistributionFormatDialog, HooksD
 from metrado.steel_distribution import (
     DEFAULT_TEMPLATE, distributed_bar_count, parse_distribution,
 )
-from metrado.shortcuts import KeyboardController
+from metrado.shortcut_store import ShortcutStore
+from metrado.shortcuts import KeyboardController, tag_action
 from metrado.reference_dialog import ReferencePicker, ConversionDialog
 from metrado import references as refs
 
 
 class PlantillaWindow(QMainWindow):
-    def __init__(self, enlace, catalog_store=None):
+    def __init__(self, enlace, catalog_store=None, shortcut_store=None):
         super().__init__()
         self._enlace, self._path, self._dirty = enlace, None, False
         self._revision = None
@@ -47,6 +48,9 @@ class PlantillaWindow(QMainWindow):
         self.setMinimumSize(900, 480)
         self.model = SheetModel(enlace, example_rows())
         self.catalog_store = catalog_store or CatalogStore()
+        self.shortcut_store = shortcut_store or ShortcutStore(
+            self.catalog_store.path.with_name('atajos.sqlite3')
+            if catalog_store is not None else None)
         self._catalog_error = None
         self._distribution_error = None
         self.steel_distribution_template = DEFAULT_TEMPLATE
@@ -74,29 +78,29 @@ class PlantillaWindow(QMainWindow):
         layout.addWidget(self.workspace, 1)
         self.setCentralWidget(central)
         files = action_toolbar(self)
-        self._action(files, "Nueva planilla", self.new_project, "Ctrl+N")
-        self._action(files, "Abrir…", self.open_project, "Ctrl+O")
-        self._action(files, "Guardar", self.save_project, "Ctrl+S")
-        self._action(files, "Guardar como…", lambda: self.save_project(True), "Ctrl+Shift+S")
+        self._action(files, 'file.new', 'Archivo', "Nueva planilla", self.new_project, "Ctrl+N")
+        self._action(files, 'file.open', 'Archivo', "Abrir…", self.open_project, "Ctrl+O")
+        self._action(files, 'file.save', 'Archivo', "Guardar", self.save_project, "Ctrl+S")
+        self._action(files, 'file.save_as', 'Archivo', "Guardar como…", lambda: self.save_project(True), "Ctrl+Shift+S")
         files.addSeparator()
-        self._action(files, "Cargar ejemplo", self.load_example)
+        self._action(files, 'file.example', 'Archivo', "Cargar ejemplo", self.load_example)
         files.addSeparator()
         edit = files
-        self._action(edit, "+ Título", lambda: self.add_row("chapter"), "Alt+C")
-        self._action(edit, "+ Subtítulo", lambda: self.add_row("subtitle"), "Alt+S")
-        self._action(edit, "+ Partida", lambda: self.add_row("item"), "Ctrl+Shift+N")
-        self._action(edit, "+ Detalle", lambda: self.add_row("detail"), "Ctrl+Return")
-        self._action(edit, "+ Título de detalle", lambda: self.add_row('detail_group'), 'Alt+G')
-        self._action(edit, "+ Subtítulo de detalle", lambda: self.add_row('detail_subgroup'), 'Alt+Shift+G')
+        self._action(edit, 'insert.chapter', 'Insertar', "+ Título", lambda: self.add_row("chapter"), "Alt+C")
+        self._action(edit, 'insert.subtitle', 'Insertar', "+ Subtítulo", lambda: self.add_row("subtitle"), "Alt+S")
+        self._action(edit, 'insert.item', 'Insertar', "+ Partida", lambda: self.add_row("item"), "Ctrl+Shift+N")
+        self._action(edit, 'insert.detail', 'Insertar', "+ Detalle", lambda: self.add_row("detail"), "Ctrl+Return")
+        self._action(edit, 'insert.detail_group', 'Insertar', "+ Título de detalle", lambda: self.add_row('detail_group'), 'Alt+G')
+        self._action(edit, 'insert.detail_subgroup', 'Insertar', "+ Subtítulo de detalle", lambda: self.add_row('detail_subgroup'), 'Alt+Shift+G')
         edit.addSeparator()
-        self._action(edit, "Cantidad directa…", self.direct_quantity, "Ctrl+D")
-        self._action(edit, "Eliminar fila…", self.remove_row, "Ctrl+Delete")
+        self._action(edit, 'edit.direct_quantity', 'Edición', "Cantidad directa…", self.direct_quantity, "Ctrl+D")
+        self._action(edit, 'edit.delete', 'Edición', "Eliminar fila…", self.remove_row, "Ctrl+Delete")
         self._organize_actions()
         self._history_actions()
         self._swelling_actions()
         self._steel_actions()
         self._navigation_actions()
-        self.keyboard = KeyboardController(self)
+        self.keyboard = KeyboardController(self, self.shortcut_store)
         self.model.changed.connect(self._changed)
         self.title_edit.textEdited.connect(self._changed)
         self.title_edit.editingFinished.connect(self._commit_title)
@@ -168,8 +172,9 @@ class PlantillaWindow(QMainWindow):
         elif self.workspace.outline.node_rows:
             self._select(self.workspace.outline.node_rows[0])
 
-    def _action(self, toolbar, text, callback, shortcut=None):
+    def _action(self, toolbar, action_id, category, text, callback, shortcut=None):
         action = add_action(self, toolbar, text, callback, shortcut)
+        tag_action(action, action_id, category, text)
         self.command_actions.append(action)
         return action
 
@@ -196,6 +201,8 @@ class PlantillaWindow(QMainWindow):
         self.redo_action = self.model.undo_stack.createRedoAction(self, 'Rehacer')
         self.undo_action.setShortcut('Ctrl+Z')
         self.redo_action.setShortcuts(['Ctrl+Y', 'Ctrl+Shift+Z'])
+        tag_action(self.undo_action, 'edit.undo', 'Edición', 'Deshacer la última operación')
+        tag_action(self.redo_action, 'edit.redo', 'Edición', 'Rehacer la última operación')
         for action in (self.undo_action, self.redo_action):
             # Cell/text editors keep their native text undo while editing.
             action.setShortcutContext(Qt.WidgetShortcut)
@@ -211,9 +218,12 @@ class PlantillaWindow(QMainWindow):
         file_menu = self.menuBar().addMenu('Archivo')
         self.import_excel_action = file_menu.addAction('Importar partidas desde Excel…', self.import_excel)
         self.import_excel_action.setToolTip('Crear una planilla desde ítems, descripciones y unidades de un Excel .xlsx.')
+        tag_action(self.import_excel_action, 'file.import_excel', 'Archivo')
         self.export_excel_action = file_menu.addAction('Exportar metrados a Excel…', self.export_excel)
         self.export_excel_action.setToolTip('Desarrollo completo y resumen enlazado, editables con fórmulas e impresión A4.')
+        tag_action(self.export_excel_action, 'file.export_excel', 'Archivo')
         self.export_action = file_menu.addAction('Exportar copia JSON…', self.export_json)
+        tag_action(self.export_action, 'file.export_json', 'Archivo')
 
     def _selection_status(self, *args):
         if self.workspace._resetting:
@@ -250,7 +260,9 @@ class PlantillaWindow(QMainWindow):
         else:
             message = self.model.summary_text
         mode = self.model.selection_mode(index.row())
-        help_text = '/: referencia · F6: panel · Ctrl+F: buscar · Ctrl+K: comandos · F1: ayuda · Tab/Mayús+Tab: nivel'
+        help_text = (self.keyboard.status_hint() if hasattr(self, 'keyboard') else
+                     '/: referencia · F6: panel · Ctrl+F: buscar · Ctrl+K: comandos · '
+                     'F1: ayuda · Tab/Mayús+Tab: nivel')
         if self.workspace.navigation_active:
             context = 'Partidas: Enter abre el desarrollo · F2 edita · ' + help_text
         elif mode in ('reference', 'conversion'):
@@ -304,7 +316,8 @@ class PlantillaWindow(QMainWindow):
             action = QAction(text, self.table)
             action.setShortcut(shortcut)
             action.setShortcutContext(Qt.WidgetShortcut)
-            action.setToolTip(text + ' (' + shortcut + ') · Incluye todos los descendientes')
+            tag_action(action, 'organize.' + key, 'Organizar',
+                       text + ' · Incluye todos los descendientes')
             action.triggered.connect(lambda checked=False, fn=callback: fn())
             self.table.addAction(action)
             self.organize_menu.addAction(action)
@@ -322,7 +335,7 @@ class PlantillaWindow(QMainWindow):
                 action.setShortcut(shortcut)
                 action.setShortcutContext(Qt.WidgetShortcut)
                 self.table.addAction(action)
-            action.setToolTip(text + (f' ({shortcut})' if shortcut else ''))
+            tag_action(action, 'edit.' + key, 'Edición', text)
             if key in ('copy', 'paste'):
                 add_flat_action(toolbar, action)
             action.triggered.connect(lambda checked=False, fn=callback: fn())
@@ -362,12 +375,16 @@ class PlantillaWindow(QMainWindow):
     def _steel_actions(self):
         menu = self.menuBar().addMenu('Acero')
         self.catalog_action = menu.addAction('Tabla global de aceros…', self.edit_steel_catalog)
+        tag_action(self.catalog_action, 'steel.catalog', 'Acero')
         self.distribution_format_action = menu.addAction(
             'Formato de distribución CAD…', self.edit_steel_distribution_format)
+        tag_action(self.distribution_format_action, 'steel.cad_format', 'Acero')
         self.hooks_action = menu.addAction('Aplicar ganchos…', self.edit_steel_hooks)
+        tag_action(self.hooks_action, 'steel.hooks', 'Acero',
+                   'Selecciona detalles de acero y aplica 1 o 2 ganchos. Reemplaza los anteriores.')
         menu.addSeparator()
         self.update_steel_action = menu.addAction('Actualizar aceros de esta obra…', self.update_project_steel)
-        self.hooks_action.setToolTip('Selecciona detalles de acero y aplica 1 o 2 ganchos. Reemplaza los anteriores.')
+        tag_action(self.update_steel_action, 'steel.update_project', 'Acero')
         toolbar = self.findChild(QToolBar, 'actionStrip')
         toolbar.addSeparator()
         add_flat_action(toolbar, self.hooks_action)
@@ -440,7 +457,9 @@ class PlantillaWindow(QMainWindow):
 
     def _swelling_actions(self):
         self.swelling_action = QAction('Factor de esponjamiento…', self)
-        self.swelling_action.setToolTip('Selecciona detalles consecutivos en m³ y aplica un FE al bloque. Doble clic en FE para editar o quitar.')
+        tag_action(self.swelling_action, 'measure.swelling', 'Metrado',
+                   'Selecciona detalles consecutivos en m³ y aplica un FE al bloque. '
+                   'Doble clic en FE para editar o quitar.')
         self.swelling_action.triggered.connect(lambda checked=False: self.edit_swelling())
         self.edit_menu.addSeparator()
         self.edit_menu.addAction(self.swelling_action)

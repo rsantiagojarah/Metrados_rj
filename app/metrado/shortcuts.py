@@ -1,12 +1,18 @@
-"""Discoverable keyboard navigation; commands reuse the application's QActions."""
+"""Discoverable and user-configurable keyboard navigation."""
+from dataclasses import dataclass
+import sqlite3
 import unicodedata
 
 from PySide6.QtCore import QEvent, QItemSelectionModel, QObject, QSize, Qt
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
-    QAbstractItemView, QApplication, QDialog, QDialogButtonBox, QLabel, QLineEdit,
-    QListWidget, QListWidgetItem, QVBoxLayout,
+    QAbstractItemView, QApplication, QDialog, QDialogButtonBox, QHeaderView,
+    QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox,
+    QPushButton, QKeySequenceEdit, QTableWidget, QTableWidgetItem, QVBoxLayout,
 )
+
+from metrado.database import ConflictError
+from metrado.shortcut_store import normalize_shortcuts
 
 
 def searchable(text):
@@ -16,6 +22,198 @@ def searchable(text):
 
 def keys(action):
     return ' / '.join(key.toString(QKeySequence.NativeText) for key in action.shortcuts())
+
+
+def tag_action(action, action_id, category, base_tooltip=None):
+    """Attach stable configuration metadata to an existing QAction."""
+    action.setObjectName('shortcut.' + action_id)
+    action.setProperty('shortcut_id', action_id)
+    action.setProperty('shortcut_category', category)
+    action.setProperty('base_tooltip', base_tooltip or action.toolTip() or action.text())
+    return action
+
+
+@dataclass(frozen=True)
+class ShortcutBinding:
+    action_id: str
+    category: str
+    title: str
+    action: QAction
+    defaults: tuple
+
+
+# These belong to cell/text navigation and remain stable so editing cannot be
+# made inaccessible through an accidental assignment.
+RESERVED = {
+    '/', 'F2', 'Return', 'Enter', 'Esc', 'Tab', 'Shift+Tab', 'Shift+Space',
+    'Ctrl+A', 'Ctrl+Home', 'Ctrl+End',
+}
+
+
+def validate_configuration(configuration, known_ids=None):
+    normalized = normalize_shortcuts(configuration)
+    if known_ids is not None and not set(normalized) <= set(known_ids):
+        raise ValueError('La configuración contiene una acción que esta versión no reconoce.')
+    reserved = {QKeySequence(value).toString(QKeySequence.PortableText).casefold()
+                for value in RESERVED}
+    owners = {}
+    for action_id, alternatives in normalized.items():
+        for shortcut in alternatives:
+            key = shortcut.casefold()
+            if key in reserved:
+                raise ValueError(f'«{shortcut}» está reservado para editar o navegar por la planilla.')
+            if key in owners:
+                raise ValueError(
+                    f'«{shortcut}» está repetido en «{owners[key]}» y «{action_id}».')
+            owners[key] = action_id
+    return normalized
+
+
+class ShortcutDialog(QDialog):
+    """Searchable two-shortcut editor with immediate conflict feedback."""
+    def __init__(self, bindings, current, parent=None):
+        super().__init__(parent)
+        self.bindings = sorted(
+            bindings, key=lambda binding: (searchable(binding.category),
+                                            searchable(binding.title)))
+        self.defaults = {binding.action_id: list(binding.defaults)
+                         for binding in self.bindings}
+        self.editors = {}
+        self.setWindowTitle('Configurar atajos de teclado')
+        self.resize(820, 620)
+        layout = QVBoxLayout(self)
+        intro = QLabel(
+            'Asigna hasta dos combinaciones por acción. Puedes borrar una combinación con el botón '
+            'del campo. Enter, Esc, Tab, F2 y las teclas propias de la planilla permanecen reservadas.')
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
+        self.search = QLineEdit()
+        self.search.setPlaceholderText('Buscar acción o categoría…')
+        self.search.setClearButtonEnabled(True)
+        layout.addWidget(self.search)
+        self.table = QTableWidget(len(self.bindings), 4)
+        self.table.setHorizontalHeaderLabels(
+            ['Categoría', 'Acción', 'Atajo principal', 'Atajo alternativo'])
+        self.table.verticalHeader().hide()
+        self.table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.table.setAlternatingRowColors(True)
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        for row, binding in enumerate(self.bindings):
+            category = QTableWidgetItem(binding.category)
+            title = QTableWidgetItem(binding.title)
+            category.setFlags(category.flags() & ~Qt.ItemIsEditable)
+            title.setFlags(title.flags() & ~Qt.ItemIsEditable)
+            self.table.setItem(row, 0, category)
+            self.table.setItem(row, 1, title)
+            values = current.get(binding.action_id, list(binding.defaults))
+            row_editors = []
+            for slot in range(2):
+                editor = QKeySequenceEdit()
+                editor.setClearButtonEnabled(True)
+                if hasattr(editor, 'setMaximumSequenceLength'):
+                    editor.setMaximumSequenceLength(1)
+                if slot < len(values):
+                    editor.setKeySequence(QKeySequence.fromString(
+                        values[slot], QKeySequence.PortableText))
+                editor.keySequenceChanged.connect(self.refresh)
+                self.table.setCellWidget(row, slot + 2, editor)
+                row_editors.append(editor)
+            self.editors[binding.action_id] = row_editors
+        layout.addWidget(self.table, 1)
+        controls = QHBoxLayout()
+        self.clear_button = QPushButton('Quitar atajos de la acción')
+        self.defaults_button = QPushButton('Restaurar predeterminados')
+        controls.addWidget(self.clear_button)
+        controls.addStretch(1)
+        controls.addWidget(self.defaults_button)
+        layout.addLayout(controls)
+        self.error = QLabel()
+        self.error.setWordWrap(True)
+        self.error.setStyleSheet('color: #ff7b86;')
+        layout.addWidget(self.error)
+        self.buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        self.buttons.button(QDialogButtonBox.Save).setText('Guardar')
+        self.buttons.button(QDialogButtonBox.Cancel).setText('Cancelar')
+        layout.addWidget(self.buttons)
+        self.search.textChanged.connect(self.filter)
+        self.clear_button.clicked.connect(self.clear_current)
+        self.defaults_button.clicked.connect(self.restore_defaults)
+        self.buttons.accepted.connect(self.accept)
+        self.buttons.rejected.connect(self.reject)
+        self.table.setCurrentCell(0, 1)
+        self.refresh()
+
+    def configuration(self):
+        configuration = {}
+        for binding in self.bindings:
+            values = []
+            for editor in self.editors[binding.action_id]:
+                value = editor.keySequence().toString(QKeySequence.PortableText)
+                if value:
+                    values.append(value)
+            configuration[binding.action_id] = values
+        try:
+            return validate_configuration(configuration, self.editors)
+        except ValueError as error:
+            message = str(error)
+            for binding in self.bindings:
+                message = message.replace(
+                    f'«{binding.action_id}»', f'«{binding.title}»')
+            raise ValueError(message) from error
+
+    def refresh(self, *args):
+        for row_editors in self.editors.values():
+            for editor in row_editors:
+                editor.setStyleSheet('')
+        try:
+            self.configuration()
+            self.error.setText('')
+            self.buttons.button(QDialogButtonBox.Save).setEnabled(True)
+        except ValueError as error:
+            self.error.setText(str(error))
+            self.buttons.button(QDialogButtonBox.Save).setEnabled(False)
+
+    def filter(self, text):
+        words = searchable(text).split()
+        first_visible = None
+        for row, binding in enumerate(self.bindings):
+            haystack = searchable(binding.category + ' ' + binding.title)
+            hidden = not all(word in haystack for word in words)
+            self.table.setRowHidden(row, hidden)
+            if not hidden and first_visible is None:
+                first_visible = row
+        current = self.table.currentRow()
+        if first_visible is not None and (current < 0 or self.table.isRowHidden(current)):
+            self.table.setCurrentCell(first_visible, 1)
+        self.clear_button.setEnabled(first_visible is not None)
+
+    def clear_current(self):
+        row = self.table.currentRow()
+        if row < 0:
+            return
+        binding = self.bindings[row]
+        for editor in self.editors[binding.action_id]:
+            editor.clear()
+        self.refresh()
+
+    def restore_defaults(self):
+        for binding in self.bindings:
+            values = self.defaults[binding.action_id]
+            for slot, editor in enumerate(self.editors[binding.action_id]):
+                editor.setKeySequence(QKeySequence(values[slot]) if slot < len(values)
+                                      else QKeySequence())
+        self.refresh()
+
+    def accept(self):
+        try:
+            self.configuration()
+        except ValueError:
+            self.refresh()
+            return
+        super().accept()
 
 
 class FinderDialog(QDialog):
@@ -111,17 +309,13 @@ class FinderDialog(QDialog):
 
 
 class KeyboardController(QObject):
-    def __init__(self, window):
+    def __init__(self, window, store):
         super().__init__(window)
         self.window = window
         self.workspace = window.workspace
+        self.store = store
         self.memory = {}
         self.actions = {}
-        self.commands = [
-            *window.command_actions, *window.row_actions.values(), window.undo_action, window.redo_action,
-            window.export_action, window.import_excel_action, window.export_excel_action, window.swelling_action, window.catalog_action,
-            window.distribution_format_action, window.hooks_action, window.update_steel_action,
-        ]
         menu = window.menuBar().addMenu('Navegar')
         definitions = (
             ('panels', 'Alternar paneles: Partidas / Planilla', ['F6', 'Shift+F6'], self.toggle_panel),
@@ -139,18 +333,26 @@ class KeyboardController(QObject):
             action = QAction(text, window)
             action.setShortcuts(shortcuts)
             action.triggered.connect(lambda checked=False, fn=callback: fn())
+            tag_action(action, 'navigate.' + name, 'Navegar', text)
             window.addAction(action)
             menu.addAction(action)
             self.actions[name] = action
-            self.commands.append(action)
         help_menu = window.menuBar().addMenu('Ayuda')
         action = QAction('Atajos de teclado…', window)
         action.setShortcut('F1')
         action.triggered.connect(self.help)
+        tag_action(action, 'help.reference', 'Ayuda', 'Consultar atajos de teclado')
         window.addAction(action)
         help_menu.addAction(action)
         self.actions['help'] = action
-        self.commands.append(action)
+        configure = QAction('Configurar atajos…', window)
+        configure.setShortcut('Ctrl+Alt+K')
+        configure.triggered.connect(self.configure_shortcuts)
+        tag_action(configure, 'help.configure_shortcuts', 'Ayuda',
+                   'Cambiar las combinaciones de teclas')
+        window.addAction(configure)
+        help_menu.addAction(configure)
+        self.actions['configure'] = configure
         # Widget scope keeps spreadsheet commands out of text editors/dialogs.
         for action, shortcut in ((window.hooks_action, 'Ctrl+Shift+H'),
                                   (window.swelling_action, 'Ctrl+Shift+E')):
@@ -162,13 +364,97 @@ class KeyboardController(QObject):
                                   (window.export_action, 'Ctrl+Shift+J')):
             action.setShortcut(shortcut)
             window.addAction(action)
-        for action in self.commands:
-            if keys(action):
-                tooltip = action.toolTip()
-                action.setToolTip(tooltip if keys(action) in tooltip else tooltip + ' · ' + keys(action))
+        self.commands = [
+            *window.command_actions, *window.row_actions.values(), window.undo_action,
+            window.redo_action, window.export_action, window.import_excel_action,
+            window.export_excel_action, window.swelling_action, window.catalog_action,
+            window.distribution_format_action, window.hooks_action,
+            window.update_steel_action, *self.actions.values(),
+        ]
+        self.bindings = []
+        for command in self.commands:
+            action_id = command.property('shortcut_id')
+            category = command.property('shortcut_category')
+            if not action_id or not category:
+                raise ValueError(f'La acción «{command.text()}» no tiene un identificador de atajo.')
+            defaults = tuple(sequence.toString(QKeySequence.PortableText)
+                             for sequence in command.shortcuts())
+            self.bindings.append(ShortcutBinding(
+                action_id, category, command.text().replace('&', ''), command, defaults))
+        self.defaults = {binding.action_id: list(binding.defaults)
+                         for binding in self.bindings}
+        self.configuration = dict(self.defaults)
+        self.revision = None
+        self.load_configuration()
         window.table.installEventFilter(self)
         window.navigator.installEventFilter(self)
         window.table.selectionModel().currentChanged.connect(self.remember)
+
+    @property
+    def known_ids(self):
+        return {binding.action_id for binding in self.bindings}
+
+    def load_configuration(self):
+        try:
+            stored, self.revision = self.store.read()
+            configuration = {key: list(value) for key, value in self.defaults.items()}
+            configuration.update({key: value for key, value in stored.items()
+                                  if key in self.known_ids})
+            self.apply_configuration(configuration)
+        except (OSError, ValueError, sqlite3.Error) as error:
+            self.revision = None
+            self.apply_configuration(self.defaults)
+            self.actions['configure'].setToolTip(
+                'No se pudo leer la configuración global de atajos: ' + str(error))
+
+    def apply_configuration(self, configuration):
+        configuration = validate_configuration(configuration, self.known_ids)
+        if set(configuration) != self.known_ids:
+            raise ValueError('La configuración debe incluir todas las acciones disponibles.')
+        by_id = {binding.action_id: binding for binding in self.bindings}
+        for action_id, alternatives in configuration.items():
+            action = by_id[action_id].action
+            action.setShortcuts([
+                QKeySequence.fromString(value, QKeySequence.PortableText)
+                for value in alternatives])
+            base = action.property('base_tooltip') or action.text().replace('&', '')
+            action.setToolTip(base + (f' ({keys(action)})' if keys(action) else ''))
+        self.configuration = {key: list(value) for key, value in configuration.items()}
+        self.window._selection_status()
+
+    def configure_shortcuts(self):
+        self.window._commit_editors()
+        try:
+            stored, revision = self.store.read()
+            current = {key: list(value) for key, value in self.defaults.items()}
+            current.update({key: value for key, value in stored.items()
+                            if key in self.known_ids})
+            current = validate_configuration(current, self.known_ids)
+            dialog = ShortcutDialog(self.bindings, current, self.window)
+            if dialog.exec() != QDialog.Accepted:
+                dialog.deleteLater()
+                return
+            configuration = dialog.configuration()
+            dialog.deleteLater()
+            self.revision = self.store.save(configuration, revision)
+            self.apply_configuration(configuration)
+            self.window.statusBar().showMessage(
+                'Atajos guardados y aplicados para todos los proyectos.', 7000)
+        except (ConflictError, OSError, ValueError, sqlite3.Error) as error:
+            QMessageBox.warning(self.window, 'Configurar atajos', str(error))
+
+    def status_hint(self):
+        parts = ['/: referencia']
+        for action_id, label in (
+            ('navigate.panels', 'panel'), ('navigate.find', 'buscar'),
+            ('navigate.commands', 'comandos'), ('help.reference', 'ayuda')):
+            binding = next(binding for binding in self.bindings
+                           if binding.action_id == action_id)
+            shortcut = keys(binding.action)
+            if shortcut:
+                parts.append(f'{shortcut}: {label}')
+        parts.append('Tab/Mayús+Tab: nivel')
+        return ' · '.join(parts)
 
     def remember(self, current=None, previous=None):
         index = self.window.table.currentIndex() if current is None else current
