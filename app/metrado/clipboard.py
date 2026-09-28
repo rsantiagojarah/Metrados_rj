@@ -54,7 +54,9 @@ def encode_rows(model, selected):
         summary[10] = 'Pendiente' if total is None else f'{total:.2f}'
         text.insert(end + 1, summary)
     mime = QMimeData()
-    version = 6 if any('reference' in row for row in block) else 5 if any('steel_catalog' in row for row in block) else 4 if any('volume_factor' in row for row in block) else 3 if any('swelling' in row for row in block) else 2 if any(row['kind'] == 'detail_group' for row in block) else 1
+    area_base = any(row['kind'] == 'detail' and row['cells'][2] == 'm3' and row['cells'][9].strip()
+                    for row in block)
+    version = 7 if area_base else 6 if any('reference' in row for row in block) else 5 if any('steel_catalog' in row for row in block) else 4 if any('volume_factor' in row for row in block) else 3 if any('swelling' in row for row in block) else 2 if any(row['kind'] == 'detail_group' for row in block) else 1
     payload = json.dumps({'version': version, 'rows': block}, ensure_ascii=False,
                          separators=(',', ':') if version == 5 else None).encode('utf-8')
     if len(payload) > MAX_BYTES:
@@ -95,7 +97,7 @@ def decode_rows(raw):
         raise ValueError('El portapapeles supera el límite de 10 MB.')
     try:
         data = json.loads(bytes(raw).decode('utf-8'))
-        if not isinstance(data, dict) or data.get('version') not in (1, 2, 3, 4, 5, 6) or not isinstance(data.get('rows'), list):
+        if not isinstance(data, dict) or data.get('version') not in (1, 2, 3, 4, 5, 6, 7) or not isinstance(data.get('rows'), list):
             raise ValueError('Formato de filas no reconocido.')
         rows = data['rows']
         if not rows or len(rows) > MAX_ROWS:
@@ -108,6 +110,10 @@ def decode_rows(raw):
         blocks = any('volume_factor' in row for row in rows)
         steel = any('steel_catalog' in row or 'steel_hooks' in row for row in rows)
         references = any('reference' in row for row in rows)
+        area_base = any(row.get('kind') == 'detail' and row.get('cells', ['', '', ''])[2] == 'm3'
+                        and len(row['cells']) > 9 and str(row['cells'][9]).strip() for row in rows)
+        if area_base and data['version'] < 7:
+            raise ValueError('El área base requiere portapapeles versión 7.')
         if references and data['version'] < 6:
             raise ValueError('Las referencias requieren portapapeles versión 6.')
         if steel and data['version'] < 5:
@@ -116,7 +122,7 @@ def decode_rows(raw):
             raise ValueError('El FE por detalles requiere portapapeles versión 4.')
         if swelling and data['version'] < 3:
             raise ValueError('El bloque con esponjamiento requiere una versión de portapapeles más reciente.')
-        version = 7 if references else 6 if steel else 5 if blocks else 4 if swelling else 3 if any(row['kind'] == 'detail_group' for row in rows) else 2
+        version = 8 if area_base else 7 if references else 6 if steel else 5 if blocks else 4 if swelling else 3 if any(row['kind'] == 'detail_group' for row in rows) else 2
         if rows[0]['kind'] in MEASUREMENT_KINDS:
             if any(row['kind'] not in MEASUREMENT_KINDS or
                    row['cells'][2] != rows[0]['cells'][2] for row in rows):

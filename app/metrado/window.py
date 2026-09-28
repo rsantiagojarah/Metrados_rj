@@ -27,7 +27,10 @@ from metrado.swelling_dialog import SwellingDialog
 from metrado.navigation import PartidaWorkspace
 from metrado import steel_config as sc
 from metrado.steel_store import CatalogStore
-from metrado.steel_dialog import CatalogDialog, HooksDialog
+from metrado.steel_dialog import CatalogDialog, DistributionFormatDialog, HooksDialog
+from metrado.steel_distribution import (
+    DEFAULT_TEMPLATE, distributed_bar_count, parse_distribution,
+)
 from metrado.shortcuts import KeyboardController
 from metrado.reference_dialog import ReferencePicker, ConversionDialog
 from metrado import references as refs
@@ -45,10 +48,16 @@ class PlantillaWindow(QMainWindow):
         self.model = SheetModel(enlace, example_rows())
         self.catalog_store = catalog_store or CatalogStore()
         self._catalog_error = None
+        self._distribution_error = None
+        self.steel_distribution_template = DEFAULT_TEMPLATE
         try:
             self.model.steel_defaults, _ = self.catalog_store.read()
         except (OSError, ValueError, sqlite3.Error) as error:
             self._catalog_error = str(error)
+        try:
+            self.steel_distribution_template, _ = self.catalog_store.read_distribution_format()
+        except (OSError, ValueError, sqlite3.Error) as error:
+            self._distribution_error = str(error)
         self.model.setParent(self)
         self.table = SheetView(self.model)
         self.table.referenceRequested.connect(self.reference_partida)
@@ -248,6 +257,10 @@ class PlantillaWindow(QMainWindow):
             context = 'Total = valor referenciado × ' + ('factor × ' if mode == 'conversion' else '') + 'Elem. simil. × N.º veces · ' + help_text
         elif mode == 'steel':
             context = 'Acero: Lon. = Elem. × (Largo + ganchos + empalmes) × N.º veces; Kg = Lon. × kg/m · ' + help_text
+        elif (index.isValid() and self.model.rows[index.row()]['kind'] == 'detail' and
+              self.model.rows[index.row()]['cells'][2] == 'm3' and
+              self.model.rows[index.row()]['cells'][9].strip()):
+            context = 'Volumen = Área base × una sola dimensión (Largo, Ancho o Alto) × Elem. simil. × N.º veces · ' + help_text
         else:
             context = 'Metrado: dimensiones × Elem. simil. × N.º veces · ' + help_text
         self.statusBar().set_context(context, self.model.summary_text)
@@ -349,6 +362,8 @@ class PlantillaWindow(QMainWindow):
     def _steel_actions(self):
         menu = self.menuBar().addMenu('Acero')
         self.catalog_action = menu.addAction('Tabla global de aceros…', self.edit_steel_catalog)
+        self.distribution_format_action = menu.addAction(
+            'Formato de distribución CAD…', self.edit_steel_distribution_format)
         self.hooks_action = menu.addAction('Aplicar ganchos…', self.edit_steel_hooks)
         menu.addSeparator()
         self.update_steel_action = menu.addAction('Actualizar aceros de esta obra…', self.update_project_steel)
@@ -358,6 +373,22 @@ class PlantillaWindow(QMainWindow):
         add_flat_action(toolbar, self.hooks_action)
         if self._catalog_error:
             self.catalog_action.setToolTip(self._catalog_error)
+
+    def edit_steel_distribution_format(self):
+        self._commit_editors()
+        try:
+            template, revision = self.catalog_store.read_distribution_format()
+            dialog = DistributionFormatDialog(template, self)
+            if dialog.exec() != QDialog.Accepted:
+                return
+            template = dialog.configuration()
+            self.catalog_store.save_distribution_format(template, revision)
+            self.steel_distribution_template = template
+            self._distribution_error = None
+            self.statusBar().showMessage(
+                'Formato de distribución CAD guardado para todos los proyectos.', 8000)
+        except (OSError, ValueError, sqlite3.Error) as error:
+            QMessageBox.warning(self, 'Formato de distribución CAD', str(error))
 
     def edit_steel_catalog(self):
         self._commit_editors()
@@ -632,6 +663,235 @@ class PlantillaWindow(QMainWindow):
         self.model.replace(rows, 'creación de fila', (selected, 1), (position, 1))
         self._select(position)
         self.workspace.edit_description(position)
+
+    def insert_autocad_area(self, name, area_m2, entity_count,
+                            region_count=None, drawing='', drawing_unit=''):
+        """Append one area detail while preserving the original API."""
+        result = self.insert_autocad_areas([{
+            'name': name, 'area_m2': area_m2, 'entity_count': entity_count,
+            'region_count': region_count,
+        }], drawing=drawing, drawing_unit=drawing_unit)
+        measurement = result['measurements'][0]
+        return {
+            'item_code': result['item_code'],
+            'item_description': result['item_description'],
+            'detail_id': result['detail_ids'][0],
+            'area_m2': measurement['area_m2'],
+        }
+
+    def insert_autocad_areas(self, measurements, drawing='', drawing_unit=''):
+        """Append an area batch as one undoable operation."""
+        self._commit_editors()
+        visible = self.workspace._visible
+        if visible is None:
+            raise ValueError('Selecciona primero una partida en Metrados.')
+        owner = visible[0]
+        if not 0 <= owner < len(self.model.rows) or self.model.rows[owner]['kind'] != 'item':
+            raise ValueError('Selecciona primero una partida en Metrados.')
+        unit = self.model.rows[owner]['cells'][2]
+        if unit not in ('m2', 'm3'):
+            raise ValueError('La partida activa debe tener unidad m² o m³ para recibir un área de AutoCAD.')
+        if not isinstance(measurements, list) or not measurements:
+            raise ValueError('AutoCAD no envió áreas para agregar.')
+        if len(self.model.rows) + len(measurements) > MAX_ROWS:
+            raise ValueError('La planilla admite hasta 10 000 filas.')
+
+        rows = materialize(self.model.rows)
+        position = self.model.outline.ends[owner]
+        accepted = []
+        for offset, measurement in enumerate(measurements):
+            try:
+                area_m2 = self._enlace.ask_sheet_quantity(
+                    'm2', [], 1.0, 1.0, measurement['area_m2'])
+            except (KeyError, TypeError, ValueError, OverflowError) as error:
+                raise ValueError('Una de las áreas recibidas está fuera del rango admitido.') from error
+            name = str(measurement.get('name', '')).strip()
+            if not name:
+                raise ValueError('Una de las áreas recibidas no tiene nombre.')
+            row = new_row('detail', description=name, unit=unit,
+                          level=self.model.outline.levels[owner] + 1)
+            if unit == 'm2':
+                row['direct'] = format(area_m2, '.12g')
+            else:
+                row['cells'][9] = format(area_m2, '.12g')
+            rows.insert(position + offset, row)
+            accepted.append({
+                'name': name,
+                'area_m2': area_m2,
+                'entity_count': measurement.get('entity_count', 1),
+                'region_count': measurement.get('region_count'),
+            })
+        rows = renumber(rows)
+        current = self.table.currentIndex()
+        before = (current.row(), current.column()) if current.isValid() else (owner, 1)
+        last = position + len(accepted) - 1
+        self.model.replace(rows, 'áreas desde AutoCAD', before, (last, 1))
+        self._select(last)
+        suffix = (' Completa una sola dimensión en Largo, Ancho o Alto.'
+                  if unit == 'm3' else '')
+        total = sum(value['area_m2'] for value in accepted)
+        self.statusBar().showMessage(
+            f'{len(accepted)} área(s) de AutoCAD agregada(s); total: '
+            f'{total:.2f} m².{suffix}', 10000)
+        return {
+            'item_code': self.model.rows[owner]['cells'][0],
+            'item_description': self.model.rows[owner]['cells'][1],
+            'detail_ids': [self.model.rows[index]['id']
+                           for index in range(position, last + 1)],
+            'measurements': accepted,
+        }
+
+    def insert_autocad_length(self, name, length_m, entity_count,
+                              drawing='', drawing_unit=''):
+        """Append one length detail while preserving the original API."""
+        result = self.insert_autocad_lengths([{
+            'name': name, 'length_m': length_m, 'entity_count': entity_count,
+        }], drawing=drawing, drawing_unit=drawing_unit)
+        measurement = result['measurements'][0]
+        return {
+            'item_code': result['item_code'],
+            'item_description': result['item_description'],
+            'detail_id': result['detail_ids'][0],
+            'length_m': measurement['length_m'],
+        }
+
+    def insert_autocad_lengths(self, measurements, drawing='', drawing_unit=''):
+        """Append a length batch as one undoable operation."""
+        self._commit_editors()
+        visible = self.workspace._visible
+        if visible is None:
+            raise ValueError('Selecciona primero una partida en Metrados.')
+        owner = visible[0]
+        if not 0 <= owner < len(self.model.rows) or self.model.rows[owner]['kind'] != 'item':
+            raise ValueError('Selecciona primero una partida en Metrados.')
+        unit = self.model.rows[owner]['cells'][2]
+        if unit not in ('m', 'm2', 'm3'):
+            raise ValueError('La partida activa debe tener unidad m, m² o m³ para recibir una longitud de AutoCAD.')
+        if not isinstance(measurements, list) or not measurements:
+            raise ValueError('AutoCAD no envió longitudes para agregar.')
+        if len(self.model.rows) + len(measurements) > MAX_ROWS:
+            raise ValueError('La planilla admite hasta 10 000 filas.')
+
+        rows = materialize(self.model.rows)
+        position = self.model.outline.ends[owner]
+        accepted = []
+        for offset, measurement in enumerate(measurements):
+            try:
+                length_m = self._enlace.ask_sheet_quantity(
+                    'm', [], 1.0, 1.0, measurement['length_m'])
+            except (KeyError, TypeError, ValueError, OverflowError) as error:
+                raise ValueError('Una de las longitudes recibidas está fuera del rango admitido.') from error
+            length_text = f'{length_m:.2f}'
+            length_m = float(length_text)
+            if length_m <= 0:
+                raise ValueError('Una longitud es demasiado pequeña para expresarla con dos decimales.')
+            name = str(measurement.get('name', '')).strip()
+            if not name:
+                raise ValueError('Una de las longitudes recibidas no tiene nombre.')
+            row = new_row('detail', description=name, unit=unit,
+                          level=self.model.outline.levels[owner] + 1)
+            if unit == 'm':
+                row['direct'] = length_text
+            else:
+                row['cells'][4] = length_text
+            rows.insert(position + offset, row)
+            accepted.append({
+                'name': name,
+                'length_m': length_m,
+                'entity_count': measurement.get('entity_count', 1),
+            })
+        rows = renumber(rows)
+        current = self.table.currentIndex()
+        before = (current.row(), current.column()) if current.isValid() else (owner, 1)
+        last = position + len(accepted) - 1
+        self.model.replace(rows, 'longitudes desde AutoCAD', before, (last, 1))
+        self._select(last)
+        suffix = (' Completa las dimensiones restantes en Metrados.'
+                  if unit in ('m2', 'm3') else '')
+        total = sum(value['length_m'] for value in accepted)
+        self.statusBar().showMessage(
+            f'{len(accepted)} longitud(es) de AutoCAD agregada(s); total: '
+            f'{total:.2f} m.{suffix}', 10000)
+        return {
+            'item_code': self.model.rows[owner]['cells'][0],
+            'item_description': self.model.rows[owner]['cells'][1],
+            'detail_ids': [self.model.rows[index]['id']
+                           for index in range(position, last + 1)],
+            'measurements': accepted,
+        }
+
+    def insert_autocad_steel(self, description, length_m, distribution_m,
+                             distribution_text, drawing='', drawing_unit=''):
+        """Create one managed steel detail from geometry and a CAD label."""
+        self._commit_editors()
+        visible = self.workspace._visible
+        if visible is None:
+            raise ValueError('Selecciona primero una partida de acero en Metrados.')
+        owner = visible[0]
+        if (not 0 <= owner < len(self.model.rows) or
+                self.model.rows[owner]['kind'] != 'item' or
+                self.model.rows[owner]['cells'][2] != 'kg'):
+            raise ValueError('La partida activa debe tener unidad kg para recibir acero desde AutoCAD.')
+        if len(self.model.rows) >= MAX_ROWS:
+            raise ValueError('La planilla admite hasta 10 000 filas.')
+        if self._distribution_error:
+            raise ValueError('No se pudo leer el formato de distribución CAD: ' + self._distribution_error)
+        try:
+            length_m = self._enlace.ask_sheet_quantity('m', [], 1.0, 1.0, length_m)
+            distribution_m = self._enlace.ask_sheet_quantity(
+                'm', [], 1.0, 1.0, distribution_m)
+        except (TypeError, ValueError, OverflowError) as error:
+            raise ValueError('Las distancias recibidas deben ser positivas y finitas.') from error
+        length_text = f'{length_m:.2f}'
+        length_m = float(length_text)
+        if length_m <= 0:
+            raise ValueError('El largo es demasiado pequeño para expresarlo con dos decimales.')
+        parsed = parse_distribution(distribution_text, self.steel_distribution_template)
+        bars = distributed_bar_count(
+            distribution_m, parsed['spacing_m'], parsed['multiplier'])
+        description = str(description).strip()
+        if not description:
+            raise ValueError('Escribe una descripción para el detalle de acero.')
+
+        rows = materialize(self.model.rows)
+        catalog = rows[owner].get('steel_catalog') or self.model.steel_defaults
+        if catalog is None:
+            raise ValueError('No hay una tabla de aceros disponible para calcular el detalle.')
+        if self._catalog_error and 'steel_catalog' not in rows[owner]:
+            raise ValueError('No se pudo leer la tabla global de aceros: ' + self._catalog_error)
+        if 'steel_catalog' not in rows[owner]:
+            sc.adopt(rows[owner], catalog)
+        row = new_row('detail', description=description, unit='kg',
+                      level=self.model.outline.levels[owner] + 1)
+        row['cells'][3] = '1'
+        row['cells'][4] = length_text
+        row['cells'][7] = parsed['diameter']
+        row['cells'][9] = '1'
+        row['cells'][10] = str(bars)
+        sc.adopt(row, catalog)
+
+        position = self.model.outline.ends[owner]
+        rows.insert(position, row)
+        rows = renumber(rows)
+        current = self.table.currentIndex()
+        before = (current.row(), current.column()) if current.isValid() else (owner, 1)
+        self.model.replace(rows, 'acero desde AutoCAD', before, (position, 1))
+        self._select(position)
+        inserted = self.model.rows[position]
+        self.statusBar().showMessage(
+            f'Acero de AutoCAD agregado: {inserted["cells"][1]} · largo '
+            f'{length_m:.2f} m · distribución {distribution_m:.2f} m.', 10000)
+        return {
+            'item_code': self.model.rows[owner]['cells'][0],
+            'item_description': self.model.rows[owner]['cells'][1],
+            'detail_id': inserted['id'],
+            'description': inserted['cells'][1],
+            'length_m': length_m,
+            'distribution_m': distribution_m,
+            'diameter': parsed['diameter'],
+            'spacing_m': float(parsed['spacing_m']),
+            'bars': bars,
+        }
 
     def _selected_rows(self):
         """The same active-panel selection for deletion and bulk level changes."""

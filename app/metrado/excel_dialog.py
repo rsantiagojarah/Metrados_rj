@@ -18,10 +18,10 @@ class PreviewModel(QAbstractTableModel):
         return 0 if parent.isValid() else 3
 
     def data(self, index, role=Qt.DisplayRole):
-        if index.isValid() and role in (Qt.DisplayRole, Qt.ToolTipRole):
+        if index.isValid() and role == Qt.DisplayRole:
             row = self.rows[index.row()]
             text = row['cells'][index.column()]
-            if index.column() == 1 and role == Qt.DisplayRole:
+            if index.column() == 1:
                 text = '    ' * row['level'] + text
             return text
 

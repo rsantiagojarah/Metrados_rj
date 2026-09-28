@@ -16,7 +16,7 @@ from PySide6.QtWidgets import QApplication
 import metrado._enlace as engine
 from metrado import steel_config as sc
 from metrado.clipboard import ROW_MIME, decode_rows
-from metrado.database import read_database, write_database
+from metrado.database import SCHEMA_VERSION, read_database, write_database
 from metrado.grid import SheetModel
 from metrado.identity import ensure_ids
 from metrado.references import make_reference
@@ -193,7 +193,7 @@ class SnapshotTests(unittest.TestCase):
             write_project(json_path, 'Obra', restored)
             self.assertEqual(calculate(read_project(json_path)[1], engine), calculate(rows, engine))
             with closing(sqlite3.connect(db)) as con:
-                self.assertEqual(con.execute('PRAGMA user_version').fetchone()[0], 5)
+                self.assertEqual(con.execute('PRAGMA user_version').fetchone()[0], SCHEMA_VERSION)
                 self.assertEqual(con.execute('SELECT count(*) FROM steel_catalog').fetchone()[0], 54)
 
 

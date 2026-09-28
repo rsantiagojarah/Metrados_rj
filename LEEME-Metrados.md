@@ -76,13 +76,15 @@ Mientras editas texto con doble clic o F2, `Ctrl+C / Ctrl+V` conserva su comport
 | --- | --- | --- |
 | m | Largo | Lon. |
 | m2 | Largo y ancho | Área |
-| m3 | Largo, ancho y alto | Vol. |
+| m3 | Largo, ancho y alto; o Área y una sola dimensión | Vol. |
 | kg | Largo, gancho, empalme, Ø y n° de barras (solo esa partida) | Long., kg/m y Kg |
 | und, mes, vje, glb, dia | Factores; cantidad base opcional | Und. |
 
 Todos los resultados se multiplican por elementos similares y número de veces. Los factores comienzan en 1. Se aceptan coma o punto decimal, sin separadores de miles. Los datos deben ser positivos y finitos; un detalle incompleto deja el total de su partida como **Pendiente**. Una partida sin detalles tiene total 0,00.
 
 Para un área ya conocida (por ejemplo, 837,13 m2), selecciona el detalle y pulsa **Cantidad directa**. Ingresa la cantidad base antes de aplicar los factores. Esta acción sustituye las dimensiones; editar una dimensión vuelve al cálculo geométrico. Al seleccionar una partida kg o uno de sus detalles, el encabezado superior cambia al formato de acero. Al seleccionar otra unidad o un capítulo vuelve al formato general. Las filas de acero no tienen encabezados propios. DIMENSIONES agrupa Largo, gancho y empalme; después aparece N.º de veces (cantidad de barras). METRADO muestra Lon. acumulada, Diámetro, kg/m y Kg. En Diámetro, entre Lon. y kg/m, haz doble clic o pulsa F2 para elegir una medida de la lista; el peso se recalcula automáticamente. También puedes escribir el diámetro dentro de la descripción, por ejemplo 53 Ø1" o BARRA Ø8mm; la primera forma también completa la cantidad. Gancho y empalme vacíos cuentan como 0. Lon. incluye elementos similares y número de veces. Al abrir archivos anteriores, la columna N.º de veces reúne barras y repeticiones; editarla fija la cantidad total. Los detalles antiguos conservan el cálculo del motor existente; los configurados usan el peso guardado con la fila (ver Tabla de aceros). Sigue pudiendo usarse cantidad directa. Al cambiar la unidad de una partida, se borran las dimensiones y cantidades directas de sus detalles para que vuelvas a ingresarlas en la nueva unidad.
+
+En una partida **m³**, también puedes escribir un área conocida directamente en la columna **Área**. Completa después exactamente una de las columnas **Largo**, **Ancho** o **Alto**; el volumen será `Área × dimensión × Elem. simil. × N.º de veces`. Esto permite usar áreas irregulares con un espesor o secciones variables con una longitud. La fila permanece pendiente si no tiene dimensión o si tiene más de una.
 
 Los resultados se muestran con dos decimales, pero el total usa la precisión del cálculo. Solo se suman detalles de la misma partida; no existe un total global que mezcle unidades.
 
@@ -207,7 +209,30 @@ Cambiar de panel o abrir un buscador confirma la celda en edición antes de sali
 | Cantidad directa / eliminar | Ctrl+D / Ctrl+Supr |
 | Editar / avanzar durante la edición | F2 / Tab |
 
-Esta versión incluye edición y guardado local. No incluye exportación a Excel/PDF ni instalador para otros equipos.
+Esta versión incluye edición y guardado local. No incluye exportación directa a PDF ni instalador general para otros equipos.
+
+## Conexión base con AutoCAD 2021
+
+Metrados publica una sola conexión local autenticada para todas las futuras funciones de AutoCAD. Al abrir la aplicación crea una sesión temporal en `%LOCALAPPDATA%\Metrados\bridge`; al cerrarla elimina esa sesión. La conexión usa una tubería de Windows que rechaza clientes remotos, un nombre aleatorio, un token nuevo en cada ejecución, protocolo versionado, límite de tamaño, confirmaciones e identificadores que impiden procesar dos veces una misma solicitud.
+
+El complemento comprueba la conexión y permite transferir áreas sin modificar el DWG. Está compilado específicamente para **AutoCAD 2021 completo**, serie R24.0 y .NET Framework 4.8. No corresponde a AutoCAD LT 2021.
+
+1. Cierra AutoCAD.
+2. Ejecuta `autocad\Metrados.AutoCAD2021\install.ps1` para compilar e instalar el paquete del usuario.
+3. Abre primero Metrados y después AutoCAD 2021.
+4. Escribe `MTRCONEXION` en AutoCAD. Debe responder `Metrados conectado correctamente`.
+
+Para medir un área, selecciona primero una partida de unidad **m² o m³** en Metrados y ejecuta `MTRAREA` en AutoCAD. Elige `Total`, `Individual` o `Layer` y selecciona líneas que formen contornos cerrados, polilíneas 2D cerradas, círculos o elipses completas. `Total` crea una fila con la suma; `Individual`, una fila por contorno con un nombre común; `Layer`, una fila por contorno usando su capa. El comando convierte desde las unidades métricas configuradas con `UNITS`. En m² crea cantidades directas; en m³ coloca cada valor en **Área** y deja que el usuario complete después una sola dimensión en Largo, Ancho o Alto. `Ctrl+Z` en Metrados deshace todo el lote.
+
+Los objetos abiertos o no planos cancelan la operación completa. Si dos contornos se superponen, sus áreas se suman; no se calcula una unión geométrica. La captura es una medición puntual y no cambia automáticamente si después se edita el DWG.
+
+Para medir longitudes o perímetros ejecuta `MTRLONGITUD`. Elige `Total`, `Individual` o `Layer` y selecciona líneas, polilíneas, circunferencias o elipses. Las curvas abiertas aportan su longitud y las cerradas su perímetro. `Total` crea una fila con la suma; `Individual`, una fila por objeto con un nombre común; `Layer`, una fila por objeto usando su capa. En una partida **m** se crean cantidades directas; en **m²** o **m³** cada resultado se coloca en **Largo** para completar después las dimensiones restantes. Los tramos superpuestos o repetidos se suman tal como fueron seleccionados.
+
+Para metrar acero distribuido, selecciona una partida **kg** y ejecuta `MTRACERO`. Indica el largo de la barra mediante dos puntos o un número, repite para la distancia de distribución, selecciona un texto como `1Ø1"@0.275` y escribe la descripción. Metrados interpreta el texto con el formato global de `Acero > Formato de distribución CAD…`, calcula `multiplicador × (redondeo hacia arriba(distribución / espaciamiento) + 1)` barras y usa el catálogo histórico de la partida para empalmes y peso. El detalle se crea sin ganchos y recibe automáticamente el sufijo de cantidad y diámetro.
+
+El instalador no desactiva `SECURELOAD`, no amplía `TRUSTEDPATHS` y no modifica preferencias de AutoCAD. El binario de desarrollo no está firmado y AutoCAD puede solicitar una confirmación al cargarlo; una distribución a otros equipos debe llevar firma digital. Los diagnósticos rotativos no guardan el token ni contenido del dibujo y se encuentran en `%LOCALAPPDATA%\Metrados\bridge`.
+
+Si se abre Metrados después de AutoCAD, el complemento vuelve a intentar la conexión automáticamente. Si hay dos procesos de Metrados, solo el primero publica la sesión para evitar destinos ambiguos; el segundo sigue funcionando normalmente sin reemplazarla.
 
 ## Desarrollo
 

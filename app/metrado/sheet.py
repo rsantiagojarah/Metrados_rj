@@ -155,6 +155,18 @@ def _calculate_plain(rows, engine, sources=None):
                 if source_unit != unit:
                     values[(index, 5)] = factor
                 quantity = refs.linked_quantity(base, factor, number(cells[3]), number(cells[7]), engine)
+            elif unit == 'm3' and cells[9].strip():
+                base_area = number(cells[9])
+                values[(index, 9)] = base_area
+                complements = [(column, number(cells[column])) for column in (4, 5, 6)
+                               if cells[column].strip()]
+                if len(complements) != 1:
+                    raise ValueError('area_dimension')
+                if base_area <= 0 or complements[0][1] <= 0:
+                    raise ValueError('area_dimension')
+                quantity = engine.ask_sheet_quantity(
+                    unit, [], number(cells[3]), number(cells[7]),
+                    base_area * complements[0][1])
             elif row["direct"].strip():
                 if unit == "kg":
                     values[(index, 7)] = number(cells[9])
@@ -194,8 +206,12 @@ def _calculate_plain(rows, engine, sources=None):
             values[(index, RESULT_COLUMN[unit])] = quantity
             quantities.append(quantity)
         except (ValueError, KeyError, OverflowError) as error:
-            errors[index] = (str(error) if 'reference' in row else
-                             "Completa las medidas positivas. Elem. simil. y N.º de veces admiten signos, pero no cero.")
+            if str(error) == 'area_dimension':
+                errors[index] = ('El área base necesita exactamente una dimensión positiva: '
+                                 'Largo, Ancho o Alto.')
+            else:
+                errors[index] = (str(error) if 'reference' in row else
+                                 "Completa las medidas positivas. Elem. simil. y N.º de veces admiten signos, pero no cero.")
             invalid = True
     finish()
     # A block contributes its adjusted subtotal instead of its raw members.
@@ -253,7 +269,7 @@ def read_project(path):
 
 
 def validate_project(data):
-    if not isinstance(data, dict) or type(data.get('version')) is not int or data.get("version") not in (1, 2, 3, 4, 5, 6, 7):
+    if not isinstance(data, dict) or type(data.get('version')) is not int or data.get("version") not in (1, 2, 3, 4, 5, 6, 7, 8):
         raise ValueError("Formato de planilla no reconocido.")
     if not isinstance(data.get("title"), str) or not isinstance(data.get("rows"), list):
         raise ValueError("La planilla no contiene un título y filas válidos.")
@@ -304,7 +320,17 @@ def validate_project(data):
             cells[2] = current
             if row['kind'] == 'detail_group' and (cells[0] or any(cells[3:]) or row['direct']):
                 raise ValueError('Un título de detalle solo contiene descripción; no admite código ni cantidades.')
-        clear_results(cells, current or cells[2])
+            if row['kind'] == 'detail' and cells[2] == 'm3' and cells[9].strip():
+                if data['version'] < 8:
+                    cells[9] = ''
+                else:
+                    try:
+                        area = float(cells[9].strip().replace(',', '.'))
+                    except (ValueError, OverflowError) as error:
+                        raise ValueError('Área base inválida.') from error
+                    if not (area > 0 and area < float('inf')) or row['direct'] or 'reference' in row:
+                        raise ValueError('Área base inválida.')
+        clear_results(cells, current or cells[2], preserve_m3_area=data['version'] >= 8)
     Outline(data['rows'], strict=True)
     if any('reference' in row for row in data['rows']):
         from metrado.identity import ensure_ids
@@ -313,10 +339,12 @@ def validate_project(data):
     return data["title"], data["rows"]
 
 
-def clear_results(cells, unit=""):
-    """Drop calculated cells; keep steel veces (9) and n° de barras (10)."""
+def clear_results(cells, unit="", preserve_m3_area=False):
+    """Drop calculated cells; preserve steel inputs and an explicit m³ base area."""
     for column in range(8, 14):
         if unit == "kg" and column in (9, 10):
+            continue
+        if preserve_m3_area and unit == 'm3' and column == 9:
             continue
         cells[column] = ""
 
@@ -330,11 +358,13 @@ def write_project(path, title, rows):
     blocks = any('volume_factor' in row for row in rows)
     swelling = blocks or any('swelling' in row for row in rows)
     hierarchical = references or steel or swelling or groups or any('level' in row for row in rows)
-    data = {"version": 7 if references else 6 if steel else 5 if blocks else 4 if swelling else 3 if groups else 2 if hierarchical else 1, "title": title,
+    area_base = any(row['kind'] == 'detail' and row['cells'][2] == 'm3' and row['cells'][9].strip()
+                    for row in rows)
+    data = {"version": 8 if area_base else 7 if references else 6 if steel else 5 if blocks else 4 if swelling else 3 if groups else 2 if hierarchical else 1, "title": title,
             "rows": materialize(rows, immutable_catalogs=True) if hierarchical else deepcopy(rows)}
     validate_project(data)
     for row in data["rows"]:
-        clear_results(row["cells"], row["cells"][2])
+        clear_results(row["cells"], row["cells"][2], preserve_m3_area=area_base)
     path = Path(path)
     temporary = None
     try:

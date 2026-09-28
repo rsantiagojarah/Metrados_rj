@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
     QLabel, QLineEdit, QTableWidget, QTableWidgetItem, QVBoxLayout,
 )
 from metrado.steel_config import DIAMETERS, FIELDS, REFERENCE, SOURCE, number, validate_catalog
+from metrado.steel_distribution import parse_distribution, validate_template
 
 
 def label(text):
@@ -70,6 +71,68 @@ class CatalogDialog(QDialog):
         self.table.clearFocus()
         try:
             self.configuration()
+        except ValueError:
+            self.refresh()
+            return
+        super().accept()
+
+
+class DistributionFormatDialog(QDialog):
+    """User-friendly template editor; regular expressions are never exposed."""
+    def __init__(self, template, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle('Formato de distribución desde AutoCAD')
+        self.resize(620, 300)
+        layout = QVBoxLayout(self)
+        layout.addWidget(label(
+            'Define cómo están escritos los textos de distribución. Usa {diametro} y '
+            '{espaciamiento}; {multiplicador} es opcional y vale 1 si no aparece.'))
+        form = QFormLayout()
+        self.template = QLineEdit(template)
+        self.template.setMaxLength(200)
+        form.addRow('Formato:', self.template)
+        self.sample = QLineEdit('1Ø1"@0.275')
+        self.sample.setMaxLength(500)
+        form.addRow('Texto de prueba:', self.sample)
+        layout.addLayout(form)
+        layout.addWidget(label(
+            'Ejemplos: {multiplicador}Ø{diametro}@{espaciamiento} · '
+            'Ø{diametro} c/{espaciamiento}'))
+        self.preview = label('')
+        layout.addWidget(self.preview)
+        self.error = label('')
+        layout.addWidget(self.error)
+        self.buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        self.buttons.button(QDialogButtonBox.Save).setText('Guardar')
+        self.buttons.button(QDialogButtonBox.Cancel).setText('Cancelar')
+        self.buttons.accepted.connect(self.accept)
+        self.buttons.rejected.connect(self.reject)
+        layout.addWidget(self.buttons)
+        self.template.textChanged.connect(self.refresh)
+        self.sample.textChanged.connect(self.refresh)
+        self.refresh()
+
+    def configuration(self):
+        return validate_template(self.template.text())
+
+    def refresh(self, *args):
+        try:
+            template = self.configuration()
+            parsed = parse_distribution(self.sample.text(), template)
+            self.preview.setText(
+                f"Lectura: multiplicador {parsed['multiplier']} · diámetro "
+                f"{parsed['diameter']} · espaciamiento {parsed['spacing_m']} m")
+            self.error.setText('')
+            self.buttons.button(QDialogButtonBox.Save).setEnabled(True)
+        except ValueError as error:
+            self.preview.setText('')
+            self.error.setText(str(error))
+            self.buttons.button(QDialogButtonBox.Save).setEnabled(False)
+
+    def accept(self):
+        try:
+            self.configuration()
+            parse_distribution(self.sample.text(), self.configuration())
         except ValueError:
             self.refresh()
             return

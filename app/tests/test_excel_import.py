@@ -10,12 +10,12 @@ from xml.sax.saxutils import escape
 from zipfile import ZipFile
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
-from PySide6.QtCore import QCoreApplication, QEvent
+from PySide6.QtCore import QCoreApplication, QEvent, Qt
 from PySide6.QtWidgets import QApplication, QDialog, QDialogButtonBox, QToolBar
 import metrado._enlace as engine
 from metrado.database import read_database, write_database
 from metrado.excel_import import ExcelBudget, unit_code
-from metrado.excel_dialog import ExcelImportDialog
+from metrado.excel_dialog import ExcelImportDialog, PreviewModel
 from metrado.hierarchy import Outline
 from metrado.grid import SheetModel
 from metrado.sheet import calculate, new_row, read_project, write_project
@@ -78,6 +78,11 @@ class ExcelFixture:
 
 
 class ExcelTests(ExcelFixture, unittest.TestCase):
+    def test_preview_cells_have_no_hover_comments(self):
+        model = PreviewModel([new_row('item', '01.01', 'PARTIDA', 'm3', 1)])
+        for column in range(model.columnCount()):
+            self.assertIsNone(model.data(model.index(0, column), Qt.ToolTipRole))
+
     def read(self, rows=BASE):
         workbook(self.path, {'Presupuesto': rows, 'Vacía': []})
         with ExcelBudget(self.path) as budget:

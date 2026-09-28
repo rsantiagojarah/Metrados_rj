@@ -68,7 +68,7 @@ class PartidaModel(QAbstractItemModel):
         row = self.source_row(index)
         if row is None:
             return None
-        if index.column() == 1 and role in (Qt.DisplayRole, Qt.EditRole, Qt.ToolTipRole):
+        if index.column() == 1 and role in (Qt.DisplayRole, Qt.EditRole):
             return self.sheet.rows[row]['cells'][1]
         return self.sheet.data(self.sheet.index(row, self.columns[index.column()]), role)
 

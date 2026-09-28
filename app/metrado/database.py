@@ -18,7 +18,7 @@ from metrado.steel_config import FIELDS
 from metrado.references import FIELDS as REFERENCE_FIELDS
 
 APPLICATION_ID = 0x4D455452  # METR
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 SQLITE_HEADER = b'SQLite format 3\x00'
 # Visible columns and steel-specific inputs are explicit, queryable SQL columns.
 INPUT_COLUMNS = ('code', 'description', 'unit', 'similar_elements', 'length',
@@ -66,7 +66,7 @@ def _check_schema(connection):
     if connection.execute('PRAGMA application_id').fetchone()[0] != APPLICATION_ID:
         raise ValueError('Este archivo no es una base de datos de Metrados.')
     version = connection.execute('PRAGMA user_version').fetchone()[0]
-    if version not in (1, 2, 3, 4, SCHEMA_VERSION):
+    if version not in range(1, SCHEMA_VERSION + 1):
         raise ValueError('Versión de base de datos no compatible. No se modificó el archivo.')
     return version
 
@@ -225,7 +225,8 @@ def read_database(path):
                 if node_id not in by_id:
                     raise ValueError('Referencia asociada a un detalle inexistente.')
                 by_id[node_id]['reference'] = dict(zip(REFERENCE_FIELDS, fields))
-        title, rows = validate_project(dict(version=7, title=project[0], rows=rows))
+        document_version = 8 if version >= 6 else 7
+        title, rows = validate_project(dict(version=document_version, title=project[0], rows=rows))
         upgrade_legacy(rows)
         outline = Outline(rows, strict=True)
         if any(parent != (rows[index]['id'] if index is not None else None)
@@ -251,7 +252,7 @@ def write_database(path, title, rows, expected_revision=None):
     Omit it only for an explicitly chosen Save As destination.
     """
     normalized = materialize(rows, immutable_catalogs=True)
-    validate_project(dict(version=7, title=title, rows=normalized))
+    validate_project(dict(version=8, title=title, rows=normalized))
     upgrade_legacy(normalized)
     ensure_ids(normalized)
     outline = Outline(normalized, strict=True)

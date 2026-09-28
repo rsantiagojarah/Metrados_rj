@@ -10,13 +10,14 @@ import unittest
 from unittest.mock import patch
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
-from PySide6.QtCore import QItemSelection, QItemSelectionModel, QPoint, Qt
+from PySide6.QtCore import QEvent, QItemSelection, QItemSelectionModel, QPoint, Qt
+from PySide6.QtGui import QHelpEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QDialog, QDialogButtonBox, QLineEdit, QMessageBox, QTableView
 
 import metrado._enlace as engine
 from metrado.clipboard import ROW_MIME, decode_rows, encode_rows, insert_rows, parse_tsv
-from metrado.database import ConflictError, read_database, write_database
+from metrado.database import SCHEMA_VERSION, ConflictError, read_database, write_database
 from metrado.grid import FOOTER_HEIGHT, ROW_HEIGHT, SheetModel
 from metrado.hierarchy import move_to
 from metrado.sheet import calculate, example_rows, new_row, read_project, validate_project, write_project
@@ -266,7 +267,7 @@ class BlockStorageTests(unittest.TestCase):
         self.assertEqual(read_database(self.path), ('Obra', self.model.rows, revision))
         self.assertEqual(write_database(self.path, 'Obra', self.model.rows, revision), revision)
         with closing(sqlite3.connect(self.path)) as con:
-            self.assertEqual(con.execute('PRAGMA user_version').fetchone()[0], 5)
+            self.assertEqual(con.execute('PRAGMA user_version').fetchone()[0], SCHEMA_VERSION)
             self.assertEqual(con.execute('SELECT factor, note FROM detail_swelling').fetchall(),
                              [('1,20', 'Criterio del proyecto')] * 2)
             self.assertEqual(con.execute('PRAGMA foreign_key_check').fetchall(), [])
@@ -479,7 +480,25 @@ class BlockUiTests(unittest.TestCase):
             QTest.mouseDClick(table.viewport(), Qt.LeftButton, pos=point)
         dialog.assert_called_once()
         self.assertNotEqual(table.state(), QTableView.EditingState)
-        self.assertIn('Criterio del proyecto', self.window.model.swelling_tooltip(3))
+
+    def test_tables_and_fe_footer_do_not_show_hover_comments(self):
+        self.window.model.set_swelling([3, 4], config())
+        APP.processEvents()
+        model = self.window.model
+        for row in range(model.rowCount()):
+            for column in range(model.columnCount()):
+                self.assertIsNone(model.data(model.index(row, column), Qt.ToolTipRole))
+        outline = self.window.workspace.outline
+        for row in outline.node_rows:
+            for column in range(outline.columnCount()):
+                self.assertIsNone(outline.data(outline.for_row(row, column), Qt.ToolTipRole))
+        table = self.window.table
+        point = QPoint(table.columnViewportPosition(8) + 15,
+                       table.rowViewportPosition(4) + ROW_HEIGHT + 12)
+        event = QHelpEvent(QEvent.ToolTip, point, table.viewport().mapToGlobal(point))
+        with patch('PySide6.QtWidgets.QToolTip.showText') as show:
+            table.viewportEvent(event)
+        show.assert_not_called()
 
     def test_last_detail_editor_does_not_cover_footer(self):
         self.window.model.set_swelling([3, 4], config())

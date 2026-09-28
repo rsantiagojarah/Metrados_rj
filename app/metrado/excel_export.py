@@ -362,6 +362,13 @@ class ExcelReport:
                 except ValueError:
                     self._formula(self.dev, f'E{r}', f'"{PENDING}"', PENDING)
             self._text_height(self.dev, r, refs.description(row, self.sources), WIDTHS[1] - 3)
+        elif unit == 'm3' and cells[9].strip():
+            for c in range(5, 8):
+                self._input(r, c, cells[c - 1])
+            self._input(r, 10, cells[9])
+            required.append(f'J{r}'); conditions.extend([
+                f'J{r}>0', f'COUNT(E{r}:G{r})=1', f'SUM(E{r}:G{r})>0'])
+            terms.extend([f'J{r}', f'SUM(E{r}:G{r})'])
         elif row['direct'].strip():
             self._input(r, 5, row['direct'])
             required.append(f'E{r}'); conditions.append(f'E{r}>0'); terms.append(f'E{r}')

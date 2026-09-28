@@ -4,7 +4,7 @@ from uuid import uuid4
 
 from PySide6.QtCore import QAbstractTableModel, QEvent, QItemSelection, QItemSelectionModel, QModelIndex, QRect, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QKeySequence, QPainter, QPen, QUndoStack
-from PySide6.QtWidgets import QApplication, QAbstractItemDelegate, QComboBox, QHeaderView, QStyleOptionViewItem, QStyledItemDelegate, QTableView, QToolTip
+from PySide6.QtWidgets import QApplication, QAbstractItemDelegate, QComboBox, QHeaderView, QStyleOptionViewItem, QStyledItemDelegate, QTableView
 
 from metrado.sheet import DIMENSIONS, UNITS, calculate, _calculate_plain
 from metrado.steel import (
@@ -42,9 +42,8 @@ ALIGNMENT_ROLE = int(Qt.TextAlignmentRole)
 FONT_ROLE = int(Qt.FontRole)
 FOREGROUND_ROLE = int(Qt.ForegroundRole)
 BACKGROUND_ROLE = int(Qt.BackgroundRole)
-TOOLTIP_ROLE = int(Qt.ToolTipRole)
 DATA_ROLES = frozenset((DISPLAY_ROLE, EDIT_ROLE, ALIGNMENT_ROLE, FONT_ROLE,
-                        FOREGROUND_ROLE, BACKGROUND_ROLE, TOOLTIP_ROLE))
+                        FOREGROUND_ROLE, BACKGROUND_ROLE))
 READ_FLAGS = Qt.ItemIsSelectable | Qt.ItemIsEnabled
 EDIT_FLAGS = READ_FLAGS | Qt.ItemIsEditable
 
@@ -140,15 +139,6 @@ class SheetModel(QAbstractTableModel):
         cells[10] = 'Pendiente' if total is None else f'{total:.2f}'
         return cells
 
-    def swelling_tooltip(self, owner):
-        cells = self.swelling_summary(owner)
-        base = self.swelling_base(owner)
-        base_text = 'Pendiente' if base is None else f'{base:.2f}'
-        end = self._swelling_ends[owner]
-        note = self.rows[owner]['volume_factor']['note']
-        return (f'Detalles {owner + 1}–{end + 1}: {base_text} m³ × {cells[9]} = {cells[10]} m³\n'
-                f'{note}\nDoble clic para editar o quitar el FE. El subtotal sustituye a sus detalles en el total.')
-
     def set_swelling(self, selected, config):
         start, end = self.swelling_selection(selected)
         before = deepcopy(self.rows[start:end + 1])
@@ -221,7 +211,9 @@ class SheetModel(QAbstractTableModel):
             if 'steel_hooks' in self.rows[row] and column in (5, 6):
                 return False
             return column in (1, 3, 4, 5, 6, 7, 9)
-        return column in (1, 3, 7) or column in [c for c, _ in DIMENSIONS.get(unit, ())]
+        return (column in (1, 3, 7) or
+                (unit == 'm3' and column == 9) or
+                column in [c for c, _ in DIMENSIONS.get(unit, ())])
 
     def flags(self, index):
         if not index.isValid():
@@ -253,35 +245,6 @@ class SheetModel(QAbstractTableModel):
         if 'reference' in row:
             return self.reference_data(r, c, role)
         steel = kind == "detail" and row["cells"][2] == "kg"
-        if role == TOOLTIP_ROLE:
-            if steel and 'steel_hooks' in row and c in (5, 6, 10):
-                config = row['steel_hooks']
-                entry = row['steel_catalog'].get(row['cells'][7])
-                if entry:
-                    try:
-                        hooks, laps, count = sc.dimensions(row)
-                        return (f"{config['count']} gancho(s) × {config['override'] or entry['hook']} m = {hooks} m\n"
-                                f"{count} empalme(s) × {entry['lap']} m = {laps} m\n"
-                                f"Peso guardado: {entry['weight']} kg/m. Valores propios de esta fila.\n"
-                                "Empalmes: múltiplos de 9 m superados por largo + ganchos, sin contar empalmes.")
-                    except (ValueError, KeyError):
-                        return 'Completa largo y diámetro. Usa Aplicar ganchos para cambiar los ganchos.'
-            if 'volume_factor' in row:
-                description = row['cells'][1] + '\n' if c == 1 else ''
-                return description + self.swelling_tooltip(self.swelling_bounds(r)[0])
-            if kind == 'detail_group':
-                return row['cells'][1] + '\nTítulo del desagregado. Agrupa mediciones; no aporta cantidad propia. Tab cambia el nivel.'
-            if steel and c == 9:
-                return "Elige el diámetro con doble clic o F2. El peso se recalcula automáticamente."
-            if steel and c == 1:
-                return row['cells'][1] + ' · El sufijo cantidad y diámetro se mantiene al final. ? indica un dato pendiente.'
-            if steel and c == 7:
-                return "Cantidad de barras. Incluye las repeticiones guardadas; editar aquí establece la cantidad total."
-            if r in self.errors:
-                return self.errors[r]
-            if row["direct"]:
-                return "Cantidad base directa: " + row["direct"] + ". Se aplican elementos similares y n.º de veces."
-            return row["cells"][c] or "Doble clic o F2 para editar."
         if kind == 'detail_group' and c != 1:
             return ''
         if steel:
@@ -302,6 +265,8 @@ class SheetModel(QAbstractTableModel):
                     return row["cells"][9] if row["direct"] else row["cells"][10]
                 return f"{times:g}"
         if role == EDIT_ROLE:
+            if kind == 'detail' and row['cells'][2] == 'm3' and c == 9:
+                return row['cells'][9]
             return row["cells"][c]
         value = self.values.get((r, c))
         if steel:
@@ -331,11 +296,6 @@ class SheetModel(QAbstractTableModel):
         source = self._reference_sources.get(ref['source'])
         source_unit = source['cells'][2] if source else ref['source_unit']
         label = refs.description(row, self._reference_sources)
-        if role == TOOLTIP_ROLE:
-            return (label + '\n' + self.errors.get(r, '') + '\n'
-                    f"Valor referenciado en {source_unit}; resultado en {row['cells'][2]}. "
-                    'Se multiplica por Elem. simil. y N.º de veces (admiten negativos). '
-                    'Escribe / en Descripción para cambiar el origen o el factor.')
         if c == 1:
             return label if role == EDIT_ROLE else '   ' * self.outline.levels[r] + label
         if c in (0, 2, 3, 7):
@@ -447,6 +407,19 @@ class SheetModel(QAbstractTableModel):
             else:
                 row["cells"][10] = value
                 row["cells"][9] = "1"
+            self.recalculate(r)
+            return True
+        if row['kind'] == 'detail' and row['cells'][2] == 'm3' and c == 9:
+            if value == row['cells'][9]:
+                return False
+            if value:
+                try:
+                    area = float(value.replace(',', '.'))
+                    self.engine.ask_sheet_quantity('m2', [], 1.0, 1.0, area)
+                except (ValueError, OverflowError):
+                    return False
+            row['cells'][9] = value
+            row['direct'] = ''
             self.recalculate(r)
             return True
         if self.rows[r]["cells"][c] == value and not (c in (4, 5, 6) and self.rows[r]["direct"]):
@@ -668,6 +641,8 @@ class SheetModel(QAbstractTableModel):
         after = deepcopy(before)
         after[0]['direct'] = value
         after[0]['cells'][4:7] = [''] * 3
+        if after[0]['cells'][2] == 'm3':
+            after[0]['cells'][9] = ''
         sync_description(after[0], self.engine)
         if before != after:
             self.undo_stack.push(RowEdit(self, index, before, after, 4, 'cantidad directa'))
@@ -967,14 +942,6 @@ class SheetView(QTableView):
             event.accept()
             return
         super().mouseDoubleClickEvent(event)
-
-    def viewportEvent(self, event):
-        if event.type() == QEvent.ToolTip:
-            owner = self.footer_owner_at(event.pos())
-            if owner is not None:
-                QToolTip.showText(event.globalPos(), self.model().swelling_tooltip(owner), self)
-                return True
-        return super().viewportEvent(event)
 
     def event(self, event):
         # Tab belongs to the outline only on Ítem/Descripción, outside a cell editor.

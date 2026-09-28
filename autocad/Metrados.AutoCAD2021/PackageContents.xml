@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ApplicationPackage SchemaVersion="1.0"
+                    AppVersion="0.1.0"
+                    ProductCode="{45CA4CC1-7EB7-4A50-9A1F-53DE0C10B786}"
+                    Name="Metrados AutoCAD 2021">
+  <CompanyDetails Name="Metrados" />
+  <RuntimeRequirements OS="Win64" Platform="AutoCAD*" SeriesMin="R24.0" SeriesMax="R24.0" />
+  <Components Description="Conexión local entre AutoCAD 2021 y Metrados">
+    <ComponentEntry AppName="Metrados.AutoCAD2021"
+                    Version="0.1.0"
+                    ModuleName="./Contents/Windows/Metrados.AutoCAD2021.dll"
+                    AppType=".Net"
+                    LoadOnAutoCADStartup="True">
+      <Commands GroupName="METRADOS_COMMANDS">
+        <Command Global="MTRCONEXION" Local="MTRCONEXION" />
+        <Command Global="MTRAREA" Local="MTRAREA" />
+        <Command Global="MTRLONGITUD" Local="MTRLONGITUD" />
+        <Command Global="MTRACERO" Local="MTRACERO" />
+      </Commands>
+    </ComponentEntry>
+  </Components>
+</ApplicationPackage>
