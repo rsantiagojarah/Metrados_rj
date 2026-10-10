@@ -319,6 +319,7 @@ class SteelStorageTests(unittest.TestCase):
             connection.execute('DROP TABLE steel_hooks')
             connection.execute('DROP TABLE steel_catalog')
             connection.execute('DROP TABLE detail_references')
+            connection.execute('DROP TABLE wall_details')
             connection.execute('PRAGMA user_version=3')
         before = self.path.read_bytes()
         title, loaded, oldrevision = read_database(self.path)

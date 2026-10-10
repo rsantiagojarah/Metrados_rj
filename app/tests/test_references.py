@@ -225,6 +225,7 @@ class ReferenceTests(unittest.TestCase):
             revision = write_database(path, 'Anterior', self.model.rows)
             with closing(sqlite3.connect(path)) as con, con:
                 con.execute('DROP TABLE detail_references')
+                con.execute('DROP TABLE wall_details')
                 con.execute('PRAGMA user_version=4')
             self.assertEqual(read_database(path)[0], 'Anterior')
             self.link()

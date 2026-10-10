@@ -312,6 +312,9 @@ def validate_project(data):
         if 'reference' in row and data['version'] < 7:
             raise ValueError('Las referencias requieren formato JSON versión 7.')
         refs.validate_row(row)
+        if 'wall_generated' in row:
+            from metrado.wall_instances import validate_wall_row
+            validate_wall_row(row)
         sync_dimensions(row)
         if data['version'] >= 2 and 'level' not in row:
             raise ValueError('Falta el nivel de una fila.')

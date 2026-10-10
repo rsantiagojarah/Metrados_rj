@@ -170,6 +170,9 @@ def insert_rows(rows, selected, block):
     new_ids = {row['id']: uuid4().hex for row in block if 'id' in row}
     for row in block:
         row['level'] += level
+        # Copied quantities are independent details, not additional members of
+        # the source wall. Regenerating it must never remove the pasted copy.
+        row.pop('wall_generated', None)
         if 'id' in row:
             row['id'] = new_ids[row['id']]
         if 'reference' in row:

@@ -253,6 +253,7 @@ class BlockStorageTests(unittest.TestCase):
             con.execute('DROP TABLE steel_hooks')
             con.execute('DROP TABLE steel_catalog')
             con.execute('DROP TABLE detail_references')
+            con.execute('DROP TABLE wall_details')
             if version == 1:
                 con.execute('DROP TABLE item_swelling')
             else:

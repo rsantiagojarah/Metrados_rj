@@ -35,6 +35,9 @@ from metrado.shortcut_store import ShortcutStore
 from metrado.shortcuts import KeyboardController, tag_action
 from metrado.reference_dialog import ReferencePicker, ConversionDialog
 from metrado import references as refs
+from metrado.wall_types import WallTypeStore
+from metrado.wall_instances import apply_wall, selected_wall
+from metrado.wall_dialog import WallTypeDialog, WallGeneratorDialog
 
 
 class PlantillaWindow(QMainWindow):
@@ -48,6 +51,7 @@ class PlantillaWindow(QMainWindow):
         self.setMinimumSize(900, 480)
         self.model = SheetModel(enlace, example_rows())
         self.catalog_store = catalog_store or CatalogStore()
+        self.wall_type_store = WallTypeStore(self.catalog_store.path.with_name('muros.sqlite3'))
         self.shortcut_store = shortcut_store or ShortcutStore(
             self.catalog_store.path.with_name('atajos.sqlite3')
             if catalog_store is not None else None)
@@ -99,6 +103,7 @@ class PlantillaWindow(QMainWindow):
         self._history_actions()
         self._swelling_actions()
         self._steel_actions()
+        self._wall_actions()
         self._navigation_actions()
         self.keyboard = KeyboardController(self, self.shortcut_store)
         self.model.changed.connect(self._changed)
@@ -369,6 +374,7 @@ class PlantillaWindow(QMainWindow):
         menu.addSeparator()
         menu.addAction(self.swelling_action)
         menu.addAction(self.hooks_action)
+        menu.addAction(self.wall_edit_action)
         menu.addSeparator()
         menu.addAction('Eliminar bloque…', self.remove_row)
         menu.exec(view.viewport().mapToGlobal(point))
@@ -391,6 +397,47 @@ class PlantillaWindow(QMainWindow):
         add_flat_action(toolbar, self.hooks_action)
         if self._catalog_error:
             self.catalog_action.setToolTip(self._catalog_error)
+
+    def _wall_actions(self):
+        menu = self.menuBar().addMenu('Muros')
+        self.wall_types_action = menu.addAction('Administrar tipos de muro…', self.manage_wall_types)
+        self.wall_generate_action = menu.addAction('Generar muro tipo…', self.generate_wall)
+        self.wall_edit_action = menu.addAction('Editar muro generado…', self.edit_wall)
+        tag_action(self.wall_types_action, 'wall.types', 'Muros', 'Crear, duplicar, importar y exportar tipos persistentes.')
+        tag_action(self.wall_generate_action, 'wall.generate', 'Muros', 'Generar concreto, encofrado y acero en partidas existentes.')
+        tag_action(self.wall_edit_action, 'wall.edit', 'Muros', 'Selecciona un detalle del tramo para actualizar longitud, altura y destinos.')
+
+    def manage_wall_types(self):
+        try:
+            WallTypeDialog(self.wall_type_store, self).exec()
+        except (OSError, ValueError, sqlite3.Error) as error:
+            QMessageBox.warning(self, 'Tipos de muro', str(error))
+
+    def generate_wall(self):
+        self._wall_dialog()
+
+    def edit_wall(self):
+        self._commit_editors()
+        try:
+            instance = selected_wall(self.model.rows, self.table.currentIndex().row())
+        except ValueError as error:
+            QMessageBox.information(self, 'Editar muro', str(error))
+            return
+        self._wall_dialog(instance)
+
+    def _wall_dialog(self, instance=None):
+        self._commit_editors()
+        try:
+            dialog = WallGeneratorDialog(self.wall_type_store, self.model.rows, self, instance=instance)
+            if dialog.exec() != QDialog.Accepted:
+                return
+            wall, length, height = dialog.configuration()
+            rows = apply_wall(self.model.rows, wall, length, height, dialog.selected_destinations(),
+                              dialog.tramo_name.text(), instance['instance_id'] if instance else None)
+            self.model.replace(rows, 'actualización de muro' if instance else 'generación de muro tipo')
+            self.statusBar().showMessage(f'Tramo «{dialog.tramo_name.text()}» actualizado · {length:g} m.', 8000)
+        except (OSError, ValueError, sqlite3.Error) as error:
+            QMessageBox.warning(self, 'Generar muro tipo', str(error))
 
     def edit_steel_distribution_format(self):
         self._commit_editors()

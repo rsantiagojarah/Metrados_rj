@@ -6,6 +6,7 @@ caches: steel_catalog and steel_hooks are authoritative and rebuild them on load
 """
 from contextlib import closing, contextmanager
 import os
+import json
 from pathlib import Path
 import sqlite3
 import tempfile
@@ -18,7 +19,7 @@ from metrado.steel_config import FIELDS
 from metrado.references import FIELDS as REFERENCE_FIELDS
 
 APPLICATION_ID = 0x4D455452  # METR
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 SQLITE_HEADER = b'SQLite format 3\x00'
 # Visible columns and steel-specific inputs are explicit, queryable SQL columns.
 INPUT_COLUMNS = ('code', 'description', 'unit', 'similar_elements', 'length',
@@ -147,6 +148,24 @@ def _sync_steel(connection, rows):
     return changed
 
 
+def _create_wall_table(connection):
+    connection.execute('''CREATE TABLE wall_details (
+        node_id TEXT PRIMARY KEY NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+        payload TEXT NOT NULL
+    )''')
+
+
+def _sync_walls(connection, rows):
+    desired = {row['id']: json.dumps(row['wall_generated'], ensure_ascii=False, sort_keys=True)
+               for row in rows if 'wall_generated' in row}
+    old = dict(connection.execute('SELECT node_id, payload FROM wall_details'))
+    removed = [(identity,) for identity in old if identity not in desired]
+    updates = [(identity, payload) for identity, payload in desired.items() if old.get(identity) != payload]
+    connection.executemany('DELETE FROM wall_details WHERE node_id=?', removed)
+    connection.executemany('INSERT OR REPLACE INTO wall_details VALUES (?, ?)', updates)
+    return bool(removed or updates)
+
+
 def _create_schema(connection):
     connection.execute(f'PRAGMA application_id = {APPLICATION_ID}')
     connection.execute(f'PRAGMA user_version = {SCHEMA_VERSION}')
@@ -173,6 +192,7 @@ def _create_schema(connection):
     _create_detail_factors(connection)
     _create_steel_tables(connection)
     _create_references(connection)
+    _create_wall_table(connection)
 
 
 def read_database(path):
@@ -225,6 +245,11 @@ def read_database(path):
                 if node_id not in by_id:
                     raise ValueError('Referencia asociada a un detalle inexistente.')
                 by_id[node_id]['reference'] = dict(zip(REFERENCE_FIELDS, fields))
+        if version >= 7:
+            for node_id, payload in connection.execute('SELECT node_id, payload FROM wall_details'):
+                if node_id not in by_id:
+                    raise ValueError('Muro asociado a un detalle inexistente.')
+                by_id[node_id]['wall_generated'] = json.loads(payload)
         document_version = 8 if version >= 6 else 7
         title, rows = validate_project(dict(version=document_version, title=project[0], rows=rows))
         upgrade_legacy(rows)
@@ -297,6 +322,8 @@ def write_database(path, title, rows, expected_revision=None):
                     _create_steel_tables(connection)
                 if version < 5:
                     _create_references(connection)
+                if version < 7:
+                    _create_wall_table(connection)
                 connection.execute(f'PRAGMA user_version = {SCHEMA_VERSION}')
             old_swelling = {record[0]: record for record in connection.execute('SELECT item_id, enabled, percent, note FROM item_swelling')}
             old_factors = {record[0]: record for record in connection.execute('SELECT detail_id, block_id, factor, note FROM detail_swelling')}
@@ -323,7 +350,8 @@ def write_database(path, title, rows, expected_revision=None):
                 ON CONFLICT(detail_id) DO UPDATE SET block_id=excluded.block_id, factor=excluded.factor, note=excluded.note''', changed_factors)
             changed_steel = _sync_steel(connection, normalized)
             changed_references = _sync_references(connection, normalized)
-            if deleted or updates or old_title != title or migrated or removed_swelling or changed_swelling or removed_factors or changed_factors or changed_steel or changed_references:
+            changed_walls = _sync_walls(connection, normalized)
+            if deleted or updates or old_title != title or migrated or removed_swelling or changed_swelling or removed_factors or changed_factors or changed_steel or changed_references or changed_walls:
                 revision += 1
                 connection.execute('UPDATE project SET title=?, revision=? WHERE singleton=1', (title, revision))
             connection.commit()
