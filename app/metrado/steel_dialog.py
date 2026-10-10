@@ -8,6 +8,8 @@ from PySide6.QtWidgets import (
 )
 from metrado.steel_config import DIAMETERS, FIELDS, REFERENCE, SOURCE, number, validate_catalog
 from metrado.steel_distribution import parse_distribution, validate_template
+from metrado.numeric_edit import NumericEdit, NumericDelegate
+from metrado.arithmetic import numeric_text
 
 
 def label(text):
@@ -42,6 +44,9 @@ class CatalogDialog(QDialog):
         source.setOpenExternalLinks(True)
         layout.addWidget(source)
         self.error = label('')
+        delegate = NumericDelegate(self.table, validate=number)
+        delegate.inputError.connect(self.error.setText)
+        self.table.setItemDelegate(delegate)
         layout.addWidget(self.error)
         self.buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
         self.buttons.button(QDialogButtonBox.Save).setText('Guardar')
@@ -53,7 +58,7 @@ class CatalogDialog(QDialog):
         self.refresh()
 
     def configuration(self):
-        catalog = {dia: {field: self.table.item(i, j + 1).text().strip()
+        catalog = {dia: {field: numeric_text(self.table.item(i, j + 1).text(), positive=True)
                          for j, field in enumerate(FIELDS)} for i, dia in enumerate(DIAMETERS)}
         validate_catalog(catalog)
         return catalog
@@ -167,7 +172,7 @@ class HooksDialog(QDialog):
         form.addRow('Para toda la selección:', self.count)
         self.custom = QCheckBox('Usar otra longitud por gancho en toda la selección')
         form.addRow(self.custom)
-        self.length = QLineEdit()
+        self.length = NumericEdit(positive=True, validate=number)
         self.length.setMaxLength(64)
         self.length.setPlaceholderText('Metros, incluye el doblez; por ejemplo 0,30')
         self.length.setEnabled(False)
@@ -189,10 +194,11 @@ class HooksDialog(QDialog):
         self.custom.toggled.connect(self.length.setEnabled)
         self.custom.toggled.connect(self.refresh)
         self.length.textChanged.connect(self.refresh)
+        self.length.inputError.connect(self.error.setText)
         self.refresh()
 
     def configuration(self):
-        override = self.length.text().strip() if self.custom.isChecked() else None
+        override = self.length.number_text() if self.custom.isChecked() else None
         if override is not None:
             number(override)
         return self.count.currentIndex() + 1, override

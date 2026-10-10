@@ -1,6 +1,7 @@
 from PySide6.QtWidgets import QFormLayout, QLabel, QLineEdit, QComboBox, QWidget
 
 from metrado.messages import ERROR_TEXT, FIELDS, UNITS
+from metrado.numeric_edit import NumericEdit
 
 
 class PartidaRow(QWidget):
@@ -22,7 +23,7 @@ class PartidaRow(QWidget):
             for name in names:
                 if name in self._edits:
                     continue
-                edit = QLineEdit()
+                edit = NumericEdit(positive=True, allow_blank=True)
                 edit.editingFinished.connect(self._recalculate)
                 label = QLabel(name)
                 self._edits[name] = edit
@@ -32,6 +33,8 @@ class PartidaRow(QWidget):
         self._quantity.setReadOnly(True)
         form.addRow("cantidad", self._quantity)
         self._error = QLabel("")
+        for edit in self._edits.values():
+            edit.inputError.connect(self._error.setText)
         form.addRow("", self._error)
         self._updating = False
         self._show_fields()

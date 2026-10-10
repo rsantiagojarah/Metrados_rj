@@ -14,7 +14,7 @@ UNITS = ("m", "m2", "m3", "kg", "und", "mes", "vje", "glb", "dia")
 RESULT_COLUMN = {"m": 8, "m2": 9, "m3": 10, "kg": 12,
                  "und": 12, "mes": 12, "vje": 12, "glb": 12, "dia": 12}
 DIMENSIONS = {"m": ((4, "longitud"),),
-              "m2": ((4, "largo"), (5, "ancho")),
+              "m2": ((4, "largo"), (5, "ancho"), (6, "alto")),
               "m3": ((4, "largo"), (5, "ancho"), (6, "alto")),
               "kg": ((4, "largo"), (5, "gancho"), (6, "empalme"), (7, "diametro"), (10, "barras"))}
 
@@ -198,6 +198,16 @@ def _calculate_plain(rows, engine, sources=None):
                     kg_m = number(row['steel_catalog'][cells[7]]['weight'])
                     quantity = engine.ask_sheet_quantity('und', [], values[(index, 8)], kg_m, None)
                 values[(index, 11)] = kg_m
+            elif unit == 'm2':
+                measures = [number(cells[column]) for column, _ in DIMENSIONS['m2']
+                            if cells[column].strip()]
+                if len(measures) != 2:
+                    raise ValueError('area_pair')
+                # The engine names the rectangle sides largo/ancho; the sheet
+                # retains the user's chosen axes in their original columns.
+                dimensions = list(zip(('largo', 'ancho'), measures))
+                quantity = engine.ask_sheet_quantity(
+                    unit, dimensions, number(cells[3]), number(cells[7]), None)
             else:
                 dimensions = [
                     (name, number(cells[column])) for column, name in DIMENSIONS.get(unit, ())]
@@ -206,7 +216,10 @@ def _calculate_plain(rows, engine, sources=None):
             values[(index, RESULT_COLUMN[unit])] = quantity
             quantities.append(quantity)
         except (ValueError, KeyError, OverflowError) as error:
-            if str(error) == 'area_dimension':
+            if str(error) == 'area_pair':
+                errors[index] = ('Completa exactamente dos dimensiones: Largo y Ancho, '
+                                 'Largo y Alto, o Ancho y Alto. Deja la tercera vacía.')
+            elif str(error) == 'area_dimension':
                 errors[index] = ('El área base necesita exactamente una dimensión positiva: '
                                  'Largo, Ancho o Alto.')
             else:

@@ -49,6 +49,7 @@ EDIT_FLAGS = READ_FLAGS | Qt.ItemIsEditable
 
 
 class SheetModel(QAbstractTableModel):
+    inputError = Signal(str)
     changed = Signal()
     selectionRequested = Signal(int, int)
     footersChanged = Signal()
@@ -207,6 +208,8 @@ class SheetModel(QAbstractTableModel):
         if 'reference' in self.rows[row]:
             return column in (1, 3, 7)
         unit = self.rows[row]["cells"][2]
+        if column == 5 and unit in ('m2', 'm3') and self.rows[row]['direct']:
+            return False
         if unit == "kg":
             if 'steel_hooks' in self.rows[row] and column in (5, 6):
                 return False
@@ -229,6 +232,8 @@ class SheetModel(QAbstractTableModel):
         if role == ALIGNMENT_ROLE:
             return self._alignments[c]
         if role == FONT_ROLE:
+            if c == 4 and row['direct'] and row['cells'][2] in ('m2', 'm3'):
+                return self._fonts[True, False]
             return self._fonts[c in (1, 2), kind != "detail"]
         if role == FOREGROUND_ROLE:
             if kind == "chapter":
@@ -264,6 +269,8 @@ class SheetModel(QAbstractTableModel):
                 if times is None:
                     return row["cells"][9] if row["direct"] else row["cells"][10]
                 return f"{times:g}"
+        if kind == 'detail' and row['direct'] and row['cells'][2] in ('m2', 'm3') and c == 5:
+            return row['direct']
         if role == EDIT_ROLE:
             if kind == 'detail' and row['cells'][2] == 'm3' and c == 9:
                 return row['cells'][9]
@@ -285,7 +292,7 @@ class SheetModel(QAbstractTableModel):
         if c == 13 and r in self.errors and kind == "item":
             return "Pendiente"
         if c == 4 and row["direct"]:
-            return "ÁREA" if row["cells"][2] == "m2" else "DIRECTO"
+            return {'m2': 'ÁREA', 'm3': 'VOLUMEN'}.get(row['cells'][2], 'DIRECTO')
         if c == 1:
             return "   " * self.outline.levels[r] + row["cells"][c]
         return row["cells"][c]
@@ -372,6 +379,18 @@ class SheetModel(QAbstractTableModel):
             return False
         r, c = index.row(), index.column()
         value = str(value).strip()
+        row = self.rows[r]
+        if row['kind'] == 'detail' and c in (3, 4, 5, 6, 7, 9, 10) and not (
+                row['cells'][2] == 'kg' and c == 9):
+            from metrado.arithmetic import numeric_text
+            signed = c == 3 or c == 7
+            zero_allowed = row['cells'][2] == 'kg' and c in (5, 6)
+            try:
+                value = numeric_text(value, positive=not signed and not zero_allowed,
+                                     nonnegative=zero_allowed, nonzero=signed, allow_blank=True)
+            except ValueError as error:
+                self.inputError.emit(str(error))
+                return False
         if c == 2 and value not in UNITS:
             return False
         row = self.rows[r]
@@ -427,7 +446,8 @@ class SheetModel(QAbstractTableModel):
         self.rows[r]["cells"][c] = value
         if c == 2 and value != 'm3':
             self.rows[r].pop('swelling', None)
-        if c in (4, 5, 6, 7, 9, 10):
+        if c in (4, 5, 6, 7, 9, 10) and not (
+                c == 7 and row['cells'][2] in ('m2', 'm3') and row['direct']):
             self.rows[r]["direct"] = ""
         if c == 2:
             row.pop('steel_catalog', None)
@@ -637,6 +657,12 @@ class SheetModel(QAbstractTableModel):
     def set_direct(self, index, value):
         if self.rows[index]["kind"] != "detail" or 'reference' in self.rows[index]:
             return
+        from metrado.arithmetic import numeric_text
+        try:
+            value = numeric_text(value, positive=True, allow_blank=True)
+        except ValueError as error:
+            self.inputError.emit(str(error))
+            return
         before = deepcopy(self.rows[index:index + 1])
         after = deepcopy(before)
         after[0]['direct'] = value
@@ -720,6 +746,9 @@ class SheetDelegate(QStyledItemDelegate):
                 editor.insertItem(0, current)
             return editor
         editor = super().createEditor(parent, option, index)
+        if index.column() in (3, 4, 5, 6, 7, 9, 10):
+            from metrado.arithmetic import HELP
+            editor.setToolTip(HELP)
         if index.column() == 1 and row['kind'] == 'detail':
             editor.setProperty('reference_row', index.row())
         return editor

@@ -107,6 +107,7 @@ class PlantillaWindow(QMainWindow):
         self.model.undo_stack.indexChanged.connect(self._changed)
         self.model.undo_stack.cleanChanged.connect(self._changed)
         self.model.selectionRequested.connect(self._select)
+        self.model.inputError.connect(lambda message: self.statusBar().showMessage(message, 8000))
         self.table.selectionModel().currentChanged.connect(self._selection_status)
         self.table.selectionModel().selectionChanged.connect(self._selection_status)
         self.navigator.selectionModel().selectionChanged.connect(self._selection_status)
@@ -968,6 +969,7 @@ class PlantillaWindow(QMainWindow):
             return
         value, accepted = QInputDialog.getText(self, "Cantidad directa",
             "Cantidad base (" + row["cells"][2] + "), antes de aplicar los factores.\n"
+            "Admite +, -, *, /, ^ y paréntesis; se guarda el resultado.\n"
             "Vacía el campo para volver al cálculo por dimensiones:",
             QLineEdit.Normal, row["direct"])
         if not accepted:
@@ -975,6 +977,8 @@ class PlantillaWindow(QMainWindow):
         value = value.strip()
         if value:
             try:
+                from metrado.arithmetic import numeric_text
+                value = numeric_text(value, positive=True)
                 self._enlace.ask_sheet_quantity(row["cells"][2], [], 1.0, 1.0, float(value.replace(",", ".")))
             except (ValueError, OverflowError):
                 QMessageBox.warning(self, "Cantidad inválida", "Ingresa un número positivo y finito.")

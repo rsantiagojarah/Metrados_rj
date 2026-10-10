@@ -370,12 +370,24 @@ class ExcelReport:
                 f'J{r}>0', f'COUNT(E{r}:G{r})=1', f'SUM(E{r}:G{r})>0'])
             terms.extend([f'J{r}', f'SUM(E{r}:G{r})'])
         elif row['direct'].strip():
-            self._input(r, 5, row['direct'])
-            required.append(f'E{r}'); conditions.append(f'E{r}>0'); terms.append(f'E{r}')
-            _literal(self.dev[f'F{r}'], 'DIRECTO')
-            self.dev[f'F{r}'].font = Font(name=FONT, size=8, italic=True, color='000000')
+            labeled = unit in ('m2', 'm3')
+            value_column, label_column = (6, 'E') if labeled else (5, 'F')
+            self._input(r, value_column, row['direct'])
+            address = f'{letter(value_column)}{r}'
+            required.append(address); conditions.append(f'{address}>0'); terms.append(address)
+            label = {'m2': 'ÁREA', 'm3': 'VOLUMEN'}.get(unit, 'DIRECTO')
+            _literal(self.dev[f'{label_column}{r}'], label)
+            self.dev[f'{label_column}{r}'].font = Font(name=FONT, size=8, italic=True, color='000000')
+            if labeled:
+                self.dev[address].number_format = '0.############'
+        elif unit == 'm2':
+            for c in range(5, 8):
+                self._input(r, c, cells[c - 1])
+            conditions.extend([f'COUNT(E{r}:G{r})=2', f'COUNTA(E{r}:G{r})=2',
+                               f'COUNTIF(E{r}:G{r},">0")=2'])
+            terms.append(f'PRODUCT(E{r}:G{r})')
         else:
-            for c in range(5, 5 + {'m': 1, 'm2': 2, 'm3': 3}.get(unit, 0)):
+            for c in range(5, 5 + {'m': 1, 'm3': 3}.get(unit, 0)):
                 self._input(r, c, cells[c - 1])
                 address = f'{letter(c)}{r}'
                 required.append(address); conditions.append(f'{address}>0'); terms.append(address)

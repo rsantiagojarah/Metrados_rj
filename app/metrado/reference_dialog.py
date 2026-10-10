@@ -4,6 +4,7 @@ from PySide6.QtWidgets import QDialog, QDialogButtonBox, QFormLayout, QLabel, QL
 
 from metrado.shortcuts import FinderDialog
 from metrado.references import factor_number
+from metrado.numeric_edit import NumericEdit
 
 
 class ReferencePicker(FinderDialog):
@@ -33,13 +34,14 @@ class ConversionDialog(QDialog):
         form = QFormLayout()
         self.name = QLineEdit(name)
         self.name.setMaxLength(160)
-        self.factor = QLineEdit(factor)
+        self.factor = NumericEdit(factor, positive=True, validate=factor_number)
         self.factor.setPlaceholderText('Ejemplo: 0,15')
         form.addRow('Significado del factor', self.name)
         form.addRow(f'Valor ({target_unit}/{source_unit})', self.factor)
         layout.addLayout(form)
         self.error = QLabel()
         self.error.setWordWrap(True)
+        self.factor.inputError.connect(self.error.setText)
         layout.addWidget(self.error)
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self.accept)
@@ -51,8 +53,9 @@ class ConversionDialog(QDialog):
         try:
             if not self.name.text().strip():
                 raise ValueError('Indica qué representa el factor.')
-            factor_number(self.factor.text())
+            value = self.factor.number_text()
         except ValueError as error:
             self.error.setText(str(error))
             return
+        self.factor.setText(value)
         super().accept()

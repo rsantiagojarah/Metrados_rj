@@ -3,6 +3,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QDialog, QDialogButtonBox, QFormLayout, QLabel, QLineEdit, QVBoxLayout
 
 from metrado.swelling import adjusted_volume, factor_number
+from metrado.numeric_edit import NumericEdit
 
 
 class SwellingDialog(QDialog):
@@ -16,7 +17,7 @@ class SwellingDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel(f'{count} detalle(s) consecutivo(s) seleccionados · m³'))
         form = QFormLayout()
-        self.factor = QLineEdit(config.get('factor', ''))
+        self.factor = NumericEdit(config.get('factor', ''), positive=True, validate=factor_number)
         self.factor.setPlaceholderText('Por ejemplo: 1,20')
         self.note = QLineEdit(config.get('note', ''))
         self.note.setMaxLength(1200)
@@ -27,6 +28,7 @@ class SwellingDialog(QDialog):
         self.preview = QLabel()
         self.preview.setTextFormat(Qt.PlainText)
         self.preview.setWordWrap(True)
+        self.factor.inputError.connect(self.preview.setText)
         layout.addWidget(self.preview)
         self.buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         self.remove_button = self.buttons.addButton('Quitar FE', QDialogButtonBox.ActionRole)
@@ -43,7 +45,7 @@ class SwellingDialog(QDialog):
     def configuration(self):
         if self.remove:
             return None
-        config = dict(factor=self.factor.text().strip(), note=self.note.text().strip())
+        config = dict(factor=self.factor.number_text(), note=self.note.text().strip())
         factor_number(config['factor'])
         if self.base is not None:
             adjusted_volume(self.base, config, self.engine)
@@ -66,8 +68,9 @@ class SwellingDialog(QDialog):
 
     def accept(self):
         try:
-            self.configuration()
+            config = self.configuration()
         except (ValueError, OverflowError):
             self.refresh_preview()
             return
+        self.factor.setText(config['factor'])
         super().accept()
