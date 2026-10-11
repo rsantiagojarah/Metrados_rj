@@ -77,6 +77,39 @@ class WallEditingTests(unittest.TestCase):
         model.undo_stack.redo()
         self.assertEqual(len(model.rows), len(original))
 
+    def test_generator_sends_only_screen_rows_to_its_filtered_destination(self):
+        store = WallTypeStore(self.root / 'types.db')
+        store.save(self.wall)
+        target = next(row for row in self.rows if row['kind'] == 'item' and row['cells'][2] == 'm2')
+        dialog = WallGeneratorDialog(store, self.rows)
+        dialog.destination_values['pantalla:m2'] = target['id']
+        dialog.tramo_name.setText('Lateral')
+        self.assertEqual(dialog.selected_destinations(), {'pantalla:m2': target['id']})
+        self.assertEqual(dialog.tramo_label(), self.wall.name + ' · Lateral')
+        generated = apply_wall(self.rows, *dialog.configuration(), dialog.selected_destinations(), dialog.tramo_label())
+        details = [row for row in generated if row.get('wall_generated')]
+        self.assertTrue(details)
+        self.assertEqual({row['cells'][2] for row in details}, {'m2'})
+        self.assertTrue(any(row['kind'] == 'detail_group' and row['cells'][1] == dialog.tramo_label() for row in details))
+        self.assertTrue(all(row['wall_generated']['destinations'] == {'pantalla:m2': target['id']} for row in details))
+        dialog.close()
+
+    def test_f1_action_opens_wall_generation(self):
+        store = CatalogStore(self.root / 'steel.db')
+        window = PlantillaWindow(engine, store)
+        try:
+            window._load('Muro', self.rows)
+            captured = []
+            with patch.object(window, '_wall_dialog', side_effect=lambda **kwargs: captured.append(kwargs)):
+                window.generate_wall()
+            self.assertEqual(captured, [{}])
+            self.assertEqual(window.wall_generate_action.shortcut().toString(), 'F1')
+        finally:
+            with patch.object(window, '_can_discard', return_value=True):
+                window.close()
+            window.deleteLater()
+            APP.processEvents()
+
     def test_height_does_not_change_footing_and_cut_length(self):
         low = generate_wall_rows(self.wall, 10, 6)
         high = generate_wall_rows(self.wall, 10, 8)
@@ -130,7 +163,7 @@ class WallEditingTests(unittest.TestCase):
         dialog.height.setText('7+1')
         wall, length, height = dialog.configuration()
         updated = apply_wall(rows, wall, length, height, dialog.selected_destinations(), 'Tramo A', config['instance_id'])
-        self.assertEqual(len(rows), len(updated))
+        self.assertGreater(len(updated), len(rows))
         json_path = self.root / 'obra.json'
         write_project(json_path, 'Obra', updated)
         reopened = read_project(json_path)[1]
@@ -298,7 +331,7 @@ class WallEditingTests(unittest.TestCase):
         self.assertAlmostEqual(float(transverse['cells'][4]), (1.9 ** 2 + (.4 * 1.9 / .7) ** 2) ** .5 + .6 + 1.9)
         longitudinal = next(row[1] for row in generate_wall_rows(wall, 10)
                             if row[0] == 'kg' and 'Dentellón · longitudinal' in row[1]['cells'][1])
-        self.assertEqual(int(longitudinal['cells'][3]), 20)
+        self.assertEqual(int(longitudinal['cells'][3]), 4)
         payload = asdict(wall)
         del payload['dentellon_slope']
         legacy = WallType.from_dict(payload)
@@ -322,36 +355,41 @@ class WallEditingTests(unittest.TestCase):
 
     def test_no_destination_disables_generation(self):
         dialog = WallGeneratorDialog(WallTypeStore(self.root / 'types.db'), self.rows)
-        for combo in dialog.destinations.values():
-            combo.setCurrentIndex(0)
-        self.assertFalse(dialog.buttons.button(QDialogButtonBox.Ok).isEnabled())
+        self.assertFalse(dialog.generate_button.isEnabled())
 
     def test_window_generates_and_edits_selected_instance(self):
         window = PlantillaWindow(engine, catalog_store=CatalogStore(self.root / 'steel.db'))
         window.model.replace(self.rows)
+        m3 = next(i for i, row in enumerate(window.model.rows)
+                  if row['kind'] == 'item' and row['cells'][2] == 'm3')
+        window._select(m3)
         def fill(dialog):
             dialog.length.setText('12' if dialog.instance else '10')
             dialog.height.setText('8' if dialog.instance else '6')
             dialog.tramo_name.setText('Tramo integrado')
-            return QDialog.Accepted
+            if not dialog.instance:
+                dialog.destination_values['pantalla:m3'] = window.model.rows[m3]['id']
+            dialog.generate()
+            return QDialog.Rejected
         try:
             with patch.object(WallGeneratorDialog, 'exec', fill), patch('metrado.window.QMessageBox.warning') as warning:
                 window.generate_wall()
-                generated = members(window.model.rows, 'Tramo integrado')
+                generated = members(window.model.rows, self.wall.name + ' · Tramo integrado')
                 self.assertTrue(generated)
                 index = next(i for i, r in enumerate(window.model.rows) if 'wall_generated' in r)
                 window._select(index)
                 window.edit_wall()
-                edited = members(window.model.rows, 'Tramo integrado')
+                edited = members(window.model.rows, self.wall.name + ' · Tramo integrado')
                 self.assertEqual(len(edited), len(generated))
                 self.assertTrue(all(row['wall_generated']['length'] == 12 for row in edited))
                 self.assertEqual(window.model.errors, {})
                 warning.assert_not_called()
                 window.model.undo_stack.undo()
                 self.assertTrue(all(row['wall_generated']['length'] == 10
-                                    for row in members(window.model.rows, 'Tramo integrado')))
+                                    for row in members(window.model.rows, self.wall.name + ' · Tramo integrado')))
         finally:
             window._dirty = False
             window.model.undo_stack.setClean()
             window.close()
             window.deleteLater()
+            APP.processEvents()

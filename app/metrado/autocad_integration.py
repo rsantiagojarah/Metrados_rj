@@ -101,6 +101,15 @@ def validate_length_request(message: dict) -> dict:
     return result
 
 
+def validate_point_distance_request(message: dict) -> dict:
+    payload, result = _measurement_payload(message, 'point_distance')
+    length = payload.get('length_m')
+    if type(length) not in (int, float) or not math.isfinite(length) or length <= 0:
+        raise ValueError('La distancia recibida debe ser un número positivo y finito.')
+    result['length_m'] = float(length)
+    return result
+
+
 def validate_steel_distribution_request(message: dict) -> dict:
     """Validate only captured CAD inputs; steel calculations stay in Metrados."""
     payload, result = _measurement_payload(message, "steel_distribution")
@@ -174,6 +183,9 @@ class AutoCadRequestDispatcher(QObject):
             return self.window.insert_autocad_area(**values)
         if isinstance(message, dict) and message.get('type') == 'length_measurement':
             values = validate_length_request(message)
+            captured = self.window.capture_autocad_length(values)
+            if captured is not None:
+                return captured
             if 'measurements' in values:
                 result = self.window.insert_autocad_lengths(**values)
                 return {
@@ -182,6 +194,8 @@ class AutoCadRequestDispatcher(QObject):
                     'inserted_count': len(result['detail_ids']),
                 }
             return self.window.insert_autocad_length(**values)
+        if isinstance(message, dict) and message.get('type') == 'point_distance':
+            return self.window.capture_autocad_distance(**validate_point_distance_request(message))
         if isinstance(message, dict) and message.get('type') == 'steel_distribution':
             return self.window.insert_autocad_steel(
                 **validate_steel_distribution_request(message))

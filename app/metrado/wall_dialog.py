@@ -2,6 +2,7 @@
 from copy import deepcopy
 from dataclasses import asdict
 import sqlite3
+from PySide6.QtCore import QEvent
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QDialog, QDialogButtonBox,
     QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel,
@@ -14,6 +15,7 @@ from metrado.wall_steel_form import DistributionTable
 from metrado.wall_preview import WallPreview
 from metrado.wall_rebar import hook_lengths, position_key
 from metrado.wall_types import WallType, default_wall_type, generate_wall_rows, nonnegative, positive
+from metrado.reference_dialog import ReferencePicker
 
 
 def _number(text, label, *, zero=False):
@@ -316,25 +318,37 @@ class WallTypeDialog(QDialog):
 
 
 class WallGeneratorDialog(QDialog):
-    def __init__(self, store, rows, parent=None, instance=None):
+    DESTINATIONS = (
+        ('pantalla:m3', 'Pantalla · concreto', 'm3'), ('zapata:m3', 'Zapata · concreto', 'm3'),
+        ('pantalla:m2', 'Pantalla · encofrado', 'm2'), ('zapata:m2', 'Zapata · encofrado', 'm2'),
+        ('pantalla:kg', 'Pantalla · acero', 'kg'), ('zapata:kg', 'Zapata · acero', 'kg'),
+    )
+
+    def __init__(self, store, rows, parent=None, instance=None, destination=None, item_entries=None):
         super().__init__(parent)
         self.instance = deepcopy(instance)
+        self.on_generate = None
         self.setWindowTitle('Editar muro generado' if instance else 'Generar muro tipo')
-        self.resize(650, 470)
+        self.resize(720, 520)
         layout = QVBoxLayout(self)
         form = QFormLayout()
         self.wall = QComboBox()
         self.values = [WallType.from_dict(deepcopy(instance['wall']))] if instance else store.read()
         self.wall.addItems([wall.name for wall in self.values])
         self.wall.setEnabled(not bool(instance))
-        self.tramo_name = QLineEdit(instance['name'] if instance else 'Tramo de muro')
+        self.wall_picker = QPushButton()
+        self.wall_picker.clicked.connect(self.pick_wall)
+        self.tramo_name = QLineEdit(instance.get('description', '') if instance else '')
         self.tramo_name.setMaxLength(160)
+        self.tramo_name.setPlaceholderText('Ejemplo: lateral eje B')
         self.length = NumericEdit(str(instance['length']) if instance else '1', positive=True)
         self.height = NumericEdit(str(instance['height']) if instance and instance['height'] is not None else '',
                                   positive=True, allow_blank=True)
         self.height.setPlaceholderText('Usar altura del tipo')
-        form.addRow('Tipo de muro', self.wall)
-        form.addRow('Nombre del tramo', self.tramo_name)
+        self.length.setToolTip('Haz clic aquí y usa MTRLONGITUD en AutoCAD para traer la longitud seleccionada.')
+        self.length.installEventFilter(self)
+        form.addRow('Tipo de muro', self.wall_picker)
+        form.addRow('Descripción del tramo', self.tramo_name)
         form.addRow('Longitud del tramo (m)', self.length)
         form.addRow('Altura de pantalla (m)', self.height)
         layout.addLayout(form)
@@ -343,41 +357,54 @@ class WallGeneratorDialog(QDialog):
                           'sus detalles asociados, incluidos los editados a mano. Puedes deshacer el cambio.')
             note.setWordWrap(True)
             layout.addWidget(note)
-        self.destinations = {}
-        for unit, label in [('m3', 'Concreto'), ('m2', 'Encofrado'), ('kg', 'Acero')]:
-            combo = QComboBox()
-            combo.addItem('No generar', None)
-            for row in rows:
-                if row['kind'] == 'item' and row['cells'][2] == unit:
-                    combo.addItem(f"{row['cells'][0]} · {row['cells'][1]}", row['id'])
-            selected = instance['destinations'].get(unit) if instance else None
+        self.item_entries = item_entries or [
+            dict(id=row['id'], unit=row['cells'][2], label=f"{row['cells'][0]} · {row['cells'][1]}")
+            for row in rows if row['kind'] == 'item']
+        self.destination_values, self.destinations = {}, {}
+        for key, label, unit in self.DESTINATIONS:
+            button = QPushButton('Buscar partida…')
+            button.clicked.connect(lambda checked=False, k=key: self.pick_destination(k))
+            self.destinations[key] = button
+            selected = instance['destinations'].get(key) if instance else None
+            if selected is None and instance:
+                selected = instance['destinations'].get(unit)
             if selected:
-                index = combo.findData(selected)
-                if index < 0:
-                    combo.addItem('Partida anterior no disponible · elige otra', selected)
-                    index = combo.count() - 1
-                combo.setCurrentIndex(index)
-            elif not instance and combo.count() == 2:
-                combo.setCurrentIndex(1)
-            self.destinations[unit] = combo
-            form.addRow(label, combo)
+                self.destination_values[key] = selected
+                selected_label = next((entry['label'] for entry in self.item_entries if entry['id'] == selected),
+                                      'Partida anterior no disponible')
+                button.setText(selected_label)
+            form.addRow(label, button)
         self.preview = QLabel()
         self.preview.setWordWrap(True)
         layout.addWidget(self.preview)
-        self.buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        self.buttons.button(QDialogButtonBox.Ok).setText('Actualizar tramo' if instance else 'Generar')
-        self.buttons.button(QDialogButtonBox.Cancel).setText('Cancelar')
-        self.buttons.accepted.connect(self.accept)
+        self.buttons = QDialogButtonBox(QDialogButtonBox.Cancel)
+        self.generate_button = self.buttons.addButton('Actualizar tramo' if instance else 'Generar', QDialogButtonBox.ActionRole)
+        self.buttons.button(QDialogButtonBox.Cancel).setText('Cerrar')
+        self.generate_button.clicked.connect(self.generate)
         self.buttons.rejected.connect(self.reject)
         layout.addWidget(self.buttons)
         self.length.textChanged.connect(self.update_preview)
         self.height.textChanged.connect(self.update_preview)
         self.wall.currentIndexChanged.connect(self.update_preview)
-        for combo in self.destinations.values():
-            combo.currentIndexChanged.connect(self.update_preview)
         self.length.inputError.connect(self.preview.setText)
         self.height.inputError.connect(self.preview.setText)
+        self.tramo_name.textChanged.connect(self.update_preview)
+        self.wall.currentIndexChanged.connect(self._update_wall_label)
+        self._update_wall_label()
         self.update_preview()
+
+    def eventFilter(self, watched, event):
+        if watched is self.length and event.type() == QEvent.FocusIn:
+            window = self.parent()
+            if hasattr(window, 'set_autocad_length_target'):
+                window.set_autocad_length_target(self.length)
+        return super().eventFilter(watched, event)
+
+    def done(self, result):
+        window = self.parent()
+        if hasattr(window, 'clear_autocad_length_target'):
+            window.clear_autocad_length_target(self.length)
+        super().done(result)
 
     def configuration(self):
         wall = self.values[self.wall.currentIndex()]
@@ -386,29 +413,57 @@ class WallGeneratorDialog(QDialog):
         return wall, length, height
 
     def selected_destinations(self):
-        return {unit: combo.currentData() for unit, combo in self.destinations.items() if combo.currentData()}
+        return dict(self.destination_values)
+
+    def tramo_label(self):
+        suffix = self.tramo_name.text().strip()
+        return self.wall.currentText() + (' · ' + suffix if suffix else '')
+
+    def _update_wall_label(self):
+        self.wall_picker.setText(self.wall.currentText() + '  ▾')
+
+    def pick_wall(self):
+        entries = [(f'{wall.name} · {wall.description}', '', index, True)
+                   for index, wall in enumerate(self.values)]
+        picker = ReferencePicker(entries, self)
+        picker.setWindowTitle('Elegir tipo de muro — escribe para buscar')
+        if picker.exec() == QDialog.Accepted and picker.chosen is not None:
+            self.wall.setCurrentIndex(picker.chosen)
+        picker.deleteLater()
+
+    def pick_destination(self, key):
+        unit = next(unit for code, _, unit in self.DESTINATIONS if code == key)
+        entries = [(entry['label'], unit, entry['id'], True) for entry in self.item_entries if entry['unit'] == unit]
+        picker = ReferencePicker(entries, self)
+        picker.setWindowTitle('Elegir partida — escribe para buscar')
+        if picker.exec() == QDialog.Accepted and picker.chosen is not None:
+            self.destination_values[key] = picker.chosen
+            self.destinations[key].setText(next(entry['label'] for entry in self.item_entries if entry['id'] == picker.chosen))
+            self.update_preview()
+        picker.deleteLater()
 
     def update_preview(self):
         try:
             wall, length, height = self.configuration()
             entries = generate_wall_rows(wall, length, height)
             selected = self.selected_destinations()
-            count = sum(unit in selected for unit, *_ in entries)
+            count = sum(f'{rest[-1]}:{unit}' in selected for unit, _, *rest in entries)
             self.preview.setText(f'{count} detalles · Pantalla {height or wall.screen_height:g} m · '
                                  f'Tramo {length:g} m. Solo se utilizan las partidas seleccionadas.')
-            self.buttons.button(QDialogButtonBox.Ok).setEnabled(count > 0)
+            self.generate_button.setEnabled(count > 0)
         except ValueError as error:
             self.preview.setText(str(error))
-            self.buttons.button(QDialogButtonBox.Ok).setEnabled(False)
+            self.generate_button.setEnabled(False)
 
-    def accept(self):
+    def generate(self):
         try:
             self.configuration()
             if not self.tramo_name.text().strip():
-                raise ValueError('Escribe el nombre del tramo.')
+                raise ValueError('Escribe la descripción del tramo.')
             if not self.selected_destinations():
                 raise ValueError('Selecciona al menos una partida de destino.')
         except ValueError as error:
             self.preview.setText(str(error))
             return
-        super().accept()
+        if self.on_generate:
+            self.on_generate()

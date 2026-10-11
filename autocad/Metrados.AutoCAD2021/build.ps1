@@ -36,12 +36,13 @@ $bridgeSource = Join-Path $projectDirectory 'src\BridgeClient.cs'
 $pluginSource = Join-Path $projectDirectory 'src\Plugin.cs'
 $areaSource = Join-Path $projectDirectory 'src\AreaCommand.cs'
 $lengthSource = Join-Path $projectDirectory 'src\LengthCommand.cs'
+$distanceSource = Join-Path $projectDirectory 'src\DistanceCommand.cs'
 $steelSource = Join-Path $projectDirectory 'src\SteelCommand.cs'
 $probeSource = Join-Path $projectDirectory 'src\Probe.cs'
 $pluginOutput = Join-Path $contentDirectory 'Metrados.AutoCAD2021.dll'
 $probeOutput = Join-Path $TargetDirectory 'Metrados.AutoCAD2021.Probe.exe'
 
-& $compiler @common '/target:library' "/out:$pluginOutput" "/reference:$acMgd" "/reference:$acDbMgd" "/reference:$acCoreMgd" $bridgeSource $pluginSource $areaSource $lengthSource $steelSource
+& $compiler @common '/target:library' "/out:$pluginOutput" "/reference:$acMgd" "/reference:$acDbMgd" "/reference:$acCoreMgd" $bridgeSource $pluginSource $areaSource $lengthSource $distanceSource $steelSource
 if ($LASTEXITCODE -ne 0) {
     throw 'No se pudo compilar el complemento de AutoCAD 2021.'
 }

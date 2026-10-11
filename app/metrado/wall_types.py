@@ -239,9 +239,9 @@ def generate_wall_rows(wall, length, height=None):
         rows.append(("m3", 'Muro · concreto de dentellón', [length, wall.dentellon_width + wall.dentellon_slope / 2, wall.dentellon_depth], 1, 'dentellon'))
     rows.extend([
         ("m2", 'Muro · encofrado de pantalla izquierda',
-         [length, math.hypot(height, wall.bottom_thickness - wall.top_thickness)], 1, 'encofrado'),
-        ("m2", 'Muro · encofrado de pantalla derecha', [length, height], 1, 'encofrado'),
-        ("m2", 'Muro · encofrado de zapata', [length, wall.footing_thickness], 2, 'encofrado'),
+         [length, math.hypot(height, wall.bottom_thickness - wall.top_thickness)], 1, 'pantalla'),
+        ("m2", 'Muro · encofrado de pantalla derecha', [length, height], 1, 'pantalla'),
+        ("m2", 'Muro · encofrado de zapata', [length, wall.footing_thickness], 2, 'zapata'),
     ])
     distributions = list(wall.distributions)
     if wall.cut_left and not any(item['component'] == 'refuerzo_cortado' for item in distributions):
@@ -260,5 +260,6 @@ def generate_wall_rows(wall, length, height=None):
         row = steel_detail(f"Muro · {COMPONENTS[component]} · {SIDES[item['side']]}", count,
                            geometry.body_length, geometry.hook_start + geometry.hook_end, 0,
                            item['diameter'], 1)
-        rows.append(('kg', row, 1, 'acero'))
+        category = 'pantalla' if component.startswith(('pantalla', 'refuerzo')) else 'zapata'
+        rows.append(('kg', row, 1, category))
     return rows

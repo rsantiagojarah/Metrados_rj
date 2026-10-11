@@ -86,3 +86,40 @@ Evidencia de esta simplificación: 22/22 pruebas de muros y 10/10 de operaciones
 - [x] Comprobar aislamiento entre tramos iguales, jerarquías de partidas, reapertura, cancelación y errores.
 - [x] Revisar visualmente los formularios.
 - [x] Ejecutar regresión general y verificar nuevamente los módulos afectados después de corregir las preparaciones de pruebas antiguas.
+
+## Generación desde la partida actual
+Usar `F1` dentro de una partida de concreto (m³), encofrado (m²) o acero (kg) para elegir tipo, longitud y altura opcional. El generador inserta solamente los detalles de esa unidad bajo la partida actual; no solicita tres destinos ni un nombre de tramo. La ayuda pasa a `Mayús+F1`.
+- [x] Simplificar el diálogo contextual y vincularlo a la partida actual.
+- [x] Verificar el atajo, la selección de un detalle como contexto, unidades incompatibles y la generación resultante.
+
+Evidencia: `test_wall_editing.py` (21/21) verifica que el diálogo contextual no muestra destinos ni nombre, inserta solo m² cuando se abre desde esa partida, y conserva la edición de tramos. `test_shortcuts.py` (25/25) confirma que `F1` queda asignado al generador y `Mayús+F1` a la ayuda. Regresión de muros: 35/35 aprobadas. `git diff --check` sin errores.
+
+## Acero longitudinal del dentellón
+Mantener el acero transversal en U, con anclaje dentro de la zapata. Distribuir el acero longitudinal únicamente en el borde horizontal inferior del dentellón, por debajo de la zapata.
+- [x] Excluir las ramas verticales dentro de la zapata de la distribución longitudinal.
+- [x] Verificar el nuevo conteo y que el transversal conserva su recorrido completo.
+
+Evidencia: regresión de muros 35/35 aprobada. El transversal conserva la U completa, desde la cara superior de zapata hasta el fondo del dentellón. Para el muro modelo, el longitudinal queda entre x=3,85 m y x=4,45 m a cota −1,90 m: cuatro barras con separación de 0,25 m, sin barras longitudinales en la zapata. `git diff --check` sin errores.
+
+## Longitud de muro desde AutoCAD
+Al enfocar «Longitud del tramo» en el generador de muro, `MTRLONGITUD` debe completar esa casilla sin crear detalles nuevos en la planilla. En selección total usa la longitud recibida; en selección individual o por capa suma las longitudes seleccionadas.
+- [x] Registrar y liberar el campo activo del diálogo.
+- [x] Enviar la medición de AutoCAD al campo y conservar la importación habitual cuando no haya un diálogo activo.
+
+Evidencia: `test_autocad_length.py` 7/7 confirma captura de una longitud total y suma de mediciones múltiples en el campo del diálogo, sin agregar filas a la planilla; el flujo habitual de importación de longitudes también se conserva. Regresión de muros: 35/35 aprobadas.
+
+## Generador continuo con destinos por componente
+Restaurar el formulario completo y separar sus seis destinos: pantalla y zapata para concreto, encofrado y acero; dentellón pertenece a zapata. Elegir cada partida y el tipo de muro con búsquedas filtradas. Generar títulos automáticos «Tipo · Descripción» y conservar el formulario abierto después de generar.
+- [x] Separar destinos y enrutar correctamente pantalla, zapata y dentellón.
+- [x] Añadir búsquedas filtradas de partidas y tipos, descripción y títulos por destino.
+- [x] Mantener el formulario abierto al generar y conservar la actualización de tramos.
+
+Evidencia: regresión de muros 35/35 aprobada. Comprobación directa con seis partidas de destino: se crean seis títulos, se separan pantalla y zapata en cada unidad, y concreto/acero del dentellón se insertan bajo zapata. `test_autocad_length.py` 7/7 aprobado; `git diff --check` pendiente de la comprobación final.
+
+## Distancia de dos puntos desde AutoCAD
+Agregar `MTRDISTANCIA`: toma dos puntos en AutoCAD y pasa la distancia en metros a la casilla numérica activa, sin crear detalles. En una planilla aplica a Largo, Ancho o Alto; en el generador de muros aplica a Longitud del tramo. Rechaza selecciones incompatibles.
+- [x] Añadir comando, mensaje del puente y receptor de la aplicación.
+- [x] Verificar recepción en el formulario de muro y en una dimensión de planilla.
+- [x] Compilar el complemento de AutoCAD 2021.
+
+Evidencia: `test_autocad_length.py` 8/8 aprobado, incluida distancia a campo de muro y a celda de planilla, sin agregar filas. El complemento se compiló correctamente en `target/autocad/Metrados.AutoCAD2021.bundle`; `git diff --check` sin errores.

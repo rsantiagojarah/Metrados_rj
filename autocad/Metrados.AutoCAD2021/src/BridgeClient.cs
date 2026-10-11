@@ -306,6 +306,24 @@ namespace Metrados.AutoCAD2021
             }
         }
 
+        internal bool SendPointDistance(MeasurementPayload measurement, out string message)
+        {
+            lock (sync)
+            {
+                try
+                {
+                    EnsureConnected();
+                    BridgeResponse response = Exchange(new BridgeRequest { Protocol = ProtocolVersion,
+                        Type = "point_distance", RequestId = Guid.NewGuid().ToString(), Payload = measurement });
+                    if (!response.Ok) { message = ResponseMessage(response); return false; }
+                    if (response.Type != "point_distance_ack") throw new IOException("Metrados devolvió una respuesta inesperada.");
+                    message = "Distancia aplicada a la casilla activa de Metrados.";
+                    return true;
+                }
+                catch (Exception error) { ResetConnection(); message = FriendlyMessage(error); Log("distance_transfer_failed", message); return false; }
+            }
+        }
+
         internal bool SendSteel(MeasurementPayload measurement, out string message)
         {
             lock (sync)

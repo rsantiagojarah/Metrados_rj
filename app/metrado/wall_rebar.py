@@ -120,6 +120,10 @@ def reinforcement(wall, item, length=1.0, height=None):
         elif component == 'zapata':
             y = 0 if side == 'superior' else -base
             distribution = ((0, y), (width, y))
+        elif component == 'dentellon':
+            # Longitudinal bars run only along the portion of the key below
+            # the footing.  The transverse U bars provide the embedment.
+            distribution = ((kl, -base-wall.dentellon_depth), (kr, -base-wall.dentellon_depth))
         else:
             distribution = key_path
     hook1, hook2 = hook_lengths(wall, item)

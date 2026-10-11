@@ -339,7 +339,7 @@ class KeyboardController(QObject):
             self.actions[name] = action
         help_menu = window.menuBar().addMenu('Ayuda')
         action = QAction('Atajos de teclado…', window)
-        action.setShortcut('F1')
+        action.setShortcut('Shift+F1')
         action.triggered.connect(self.help)
         tag_action(action, 'help.reference', 'Ayuda', 'Consultar atajos de teclado')
         window.addAction(action)
@@ -369,7 +369,7 @@ class KeyboardController(QObject):
             window.redo_action, window.export_action, window.import_excel_action,
             window.export_excel_action, window.swelling_action, window.catalog_action,
             window.distribution_format_action, window.hooks_action,
-            window.update_steel_action, *self.actions.values(),
+            window.update_steel_action, window.wall_generate_action, *self.actions.values(),
         ]
         self.bindings = []
         for command in self.commands:
@@ -447,7 +447,7 @@ class KeyboardController(QObject):
         parts = ['/: referencia']
         for action_id, label in (
             ('navigate.panels', 'panel'), ('navigate.find', 'buscar'),
-            ('navigate.commands', 'comandos'), ('help.reference', 'ayuda')):
+            ('navigate.commands', 'comandos'), ('wall.generate', 'muro'), ('help.reference', 'ayuda')):
             binding = next(binding for binding in self.bindings
                            if binding.action_id == action_id)
             shortcut = keys(binding.action)

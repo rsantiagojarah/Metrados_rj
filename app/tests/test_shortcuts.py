@@ -212,7 +212,7 @@ class KeyboardTests(unittest.TestCase):
         self.assertIs(QApplication.focusWidget(), self.window.title_edit)
         self.assertEqual(self.window.title_edit.selectedText(), 'Atajos')
         with patch.object(self.keyboard, 'picker', return_value=None) as picker:
-            self.key(Qt.Key_F1)
+            self.key(Qt.Key_F1, Qt.ShiftModifier)
         self.assertEqual(picker.call_args.args[0], 'Atajos de teclado')
         self.assertTrue(picker.call_args.kwargs['reference'])
 

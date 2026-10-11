@@ -11,11 +11,18 @@ from metrado.wall_types import WallType, generate_wall_rows, positive
 from metrado.wall_rebar import hook_lengths, position_key
 
 
+DESTINATION_UNITS = {
+    'pantalla:m3': 'm3', 'zapata:m3': 'm3',
+    'pantalla:m2': 'm2', 'zapata:m2': 'm2',
+    'pantalla:kg': 'kg', 'zapata:kg': 'kg',
+}
+
+
 def validate_wall_row(row):
     config = row.get('wall_generated')
     if config is None:
         return
-    if row['kind'] != 'detail' or not isinstance(config, dict):
+    if row['kind'] not in ('detail', 'detail_group') or not isinstance(config, dict):
         raise ValueError('Vínculo de muro inválido.')
     # Previous builds only kept a label and dimensions, without an instance ID.
     if 'version' not in config:
@@ -33,9 +40,13 @@ def validate_wall_row(row):
         positive(config['height'], 'Altura del tramo')
     destinations = config.get('destinations')
     if (not isinstance(destinations, dict) or not destinations or
-            any(unit not in ('m2', 'm3', 'kg') or not isinstance(identity, str) or not identity
-                for unit, identity in destinations.items())):
+            any((key not in DESTINATION_UNITS and key not in ('m2', 'm3', 'kg')) or
+                not isinstance(identity, str) or not identity
+                for key, identity in destinations.items())):
         raise ValueError('Partidas de destino inválidas.')
+    if 'description' in config and (not isinstance(config['description'], str) or
+                                    len(config['description']) > 160):
+        raise ValueError('Descripción de tramo inválida.')
 
 
 def selected_wall(rows, index):
@@ -51,7 +62,7 @@ def selected_wall(rows, index):
     return deepcopy(config)
 
 
-def apply_wall(rows, wall, length, height, destinations, name, instance_id=None):
+def apply_wall(rows, wall, length, height, destinations, name, instance_id=None, description=None):
     """Return a new sheet without mutating its source; IDs survive regeneration."""
     if not isinstance(name, str) or not name.strip() or len(name) > 160:
         raise ValueError('Escribe un nombre de tramo de hasta 160 caracteres.')
@@ -68,14 +79,15 @@ def apply_wall(rows, wall, length, height, destinations, name, instance_id=None)
     source = materialize(rows)
     ensure_ids(source)
     item_by_id = {row['id']: row for row in source if row['kind'] == 'item'}
-    for unit, identity in destinations.items():
-        if unit not in ('m2', 'm3', 'kg') or identity not in item_by_id or item_by_id[identity]['cells'][2] != unit:
+    for key, identity in destinations.items():
+        unit = DESTINATION_UNITS.get(key, key if key in ('m2', 'm3', 'kg') else None)
+        if unit is None or identity not in item_by_id or item_by_id[identity]['cells'][2] != unit:
             raise ValueError('Una partida de destino ya no existe o cambió de unidad. Selecciónala de nuevo.')
     old = [row for row in source if instance_id and row.get('wall_generated', {}).get('instance_id') == instance_id]
     if instance_id and not old:
         raise ValueError('El tramo seleccionado ya no existe.')
-    old_ids = {row['wall_generated']['key']: row['id'] for row in old}
-    if len(old_ids) != len(old):
+    old_ids = {row['wall_generated']['key']: row['id'] for row in old if row['kind'] == 'detail'}
+    if len(old_ids) != len([row for row in old if row['kind'] == 'detail']):
         raise ValueError('El tramo tiene detalles duplicados; no se modificó ninguna fila.')
     instance_id = instance_id or uuid4().hex
     result = [row for row in source if row.get('wall_generated', {}).get('instance_id') != instance_id]
@@ -84,10 +96,13 @@ def apply_wall(rows, wall, length, height, destinations, name, instance_id=None)
     additions = {identity: [] for identity in destinations.values()}
     counters = {}
     for unit, value, *rest in entries:
-        counters[unit] = counters.get(unit, 0) + 1
-        if unit not in destinations:
+        category = 'zapata' if rest[-1] == 'dentellon' else rest[-1]
+        destination_key = f'{category}:{unit}'
+        destination = destinations.get(destination_key, destinations.get(unit))
+        counters[destination_key] = counters.get(destination_key, 0) + 1
+        if destination is None:
             continue
-        key = f'{unit}:{counters[unit]}'
+        key = f'{destination_key}:{counters[destination_key]}'
         if unit == 'kg':
             row = value
         else:
@@ -99,20 +114,32 @@ def apply_wall(rows, wall, length, height, destinations, name, instance_id=None)
                 str(Decimal(str(v)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
                 for v in rest[0]
             ]
-        row['cells'][1] = f'{name.strip()} · {row["cells"][1]}'
+        row['cells'][1] = (row['cells'][1] if destination_key in destinations else
+                           f'{name.strip()} · {row["cells"][1]}')
         row['id'] = old_ids.get(key, uuid4().hex)
-        row['level'] = outline.levels[by_id[destinations[unit]]] + 1
+        row['level'] = outline.levels[by_id[destination]] + (2 if destination_key in destinations else 1)
         row['wall_generated'] = dict(version=1, instance_id=instance_id, key=key,
                                     name=name.strip(), wall=asdict(wall), length=float(length),
                                     height=None if height is None else float(height),
-                                    destinations=dict(destinations))
+                                    destinations=dict(destinations), description=description or '')
         validate_wall_row(row)
-        additions[destinations[unit]].append(row)
+        additions[destination].append(row)
     if len(result) + sum(map(len, additions.values())) > MAX_ROWS:
         raise ValueError('La generación supera el límite de 10 000 filas.')
     if not any(additions.values()):
         raise ValueError('No hay detalles para las partidas seleccionadas.')
+    grouped = any(key in DESTINATION_UNITS for key in destinations)
     for destination, details in sorted(additions.items(), key=lambda pair: by_id[pair[0]], reverse=True):
+        if grouped and details:
+            title = new_row('detail_group', description=name.strip(), unit=item_by_id[destination]['cells'][2])
+            title['id'] = uuid4().hex
+            title['level'] = outline.levels[by_id[destination]] + 1
+            title['wall_generated'] = dict(version=1, instance_id=instance_id,
+                                           key='title:' + destination, name=name.strip(), wall=asdict(wall),
+                                           length=float(length), height=None if height is None else float(height),
+                                           destinations=dict(destinations), description=description or '')
+            validate_wall_row(title)
+            details = [title, *details]
         end = outline.ends[by_id[destination]]
         result[end:end] = details
     Outline(result, strict=True)

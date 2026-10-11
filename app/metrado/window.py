@@ -38,12 +38,14 @@ from metrado import references as refs
 from metrado.wall_types import WallTypeStore
 from metrado.wall_instances import apply_wall, selected_wall
 from metrado.wall_dialog import WallTypeDialog, WallGeneratorDialog
+from metrado.numeric_edit import NumericEdit
 
 
 class PlantillaWindow(QMainWindow):
     def __init__(self, enlace, catalog_store=None, shortcut_store=None):
         super().__init__()
         self._enlace, self._path, self._dirty = enlace, None, False
+        self._autocad_length_target = None
         self._revision = None
         self.command_actions = []
         self.setStatusBar(ContextStatusBar(self))
@@ -177,6 +179,54 @@ class PlantillaWindow(QMainWindow):
             self._select(index)
         elif self.workspace.outline.node_rows:
             self._select(self.workspace.outline.node_rows[0])
+
+    def set_autocad_length_target(self, field):
+        """Receive the next MTRLONGITUD result in a focused dialog field."""
+        self._autocad_length_target = field
+
+    def clear_autocad_length_target(self, field):
+        if self._autocad_length_target is field:
+            self._autocad_length_target = None
+
+    def capture_autocad_length(self, values):
+        """Fill an opted-in dialog field, preserving normal sheet import otherwise."""
+        field = self._autocad_length_target
+        if field is None or not isValid(field) or not field.isVisible():
+            self._autocad_length_target = None
+            return None
+        measurements = values.get('measurements') or [values]
+        length = sum(float(value['length_m']) for value in measurements)
+        if length <= 0:
+            raise ValueError('AutoCAD no envió una longitud válida para el muro.')
+        field.setText(format(length, '.12g'))
+        field.editingFinished.emit()
+        field.setFocus()
+        self.statusBar().showMessage(f'Longitud de AutoCAD aplicada al muro: {length:.2f} m.', 8000)
+        return {'field': 'longitud de muro', 'length_m': length,
+                'entity_count': sum(int(value.get('entity_count', 1)) for value in measurements)}
+
+    def capture_autocad_distance(self, length_m, drawing='', drawing_unit=''):
+        """Apply MTRDISTANCIA to the active numeric field without adding rows."""
+        field = self._autocad_length_target
+        if field is None or not isValid(field) or not field.isVisible():
+            focused = QApplication.focusWidget()
+            field = focused if isinstance(focused, NumericEdit) and not focused.isReadOnly() else None
+        if field is not None and isValid(field) and field.isVisible():
+            field.setText(format(length_m, '.12g'))
+            field.editingFinished.emit()
+            field.setFocus()
+            target = 'campo del formulario'
+        else:
+            self._autocad_length_target = None
+            index = self.table.currentIndex()
+            if (not index.isValid() or index.column() not in (4, 5, 6) or
+                    not self.model.editable(index.row(), index.column())):
+                raise ValueError('Selecciona una casilla de longitud, largo, ancho o alto antes de usar MTRDISTANCIA.')
+            if not self.model.setData(index, format(length_m, '.12g')):
+                raise ValueError('La casilla seleccionada no admite esta distancia.')
+            target = 'casilla seleccionada'
+        self.statusBar().showMessage(f'Distancia de AutoCAD aplicada a {target}: {length_m:.2f} m.', 8000)
+        return {'field': target, 'length_m': float(length_m)}
 
     def _action(self, toolbar, action_id, category, text, callback, shortcut=None):
         action = add_action(self, toolbar, text, callback, shortcut)
@@ -402,9 +452,11 @@ class PlantillaWindow(QMainWindow):
         menu = self.menuBar().addMenu('Muros')
         self.wall_types_action = menu.addAction('Administrar tipos de muro…', self.manage_wall_types)
         self.wall_generate_action = menu.addAction('Generar muro tipo…', self.generate_wall)
+        self.wall_generate_action.setShortcut('F1')
         self.wall_edit_action = menu.addAction('Editar muro generado…', self.edit_wall)
         tag_action(self.wall_types_action, 'wall.types', 'Muros', 'Crear, duplicar, importar y exportar tipos persistentes.')
-        tag_action(self.wall_generate_action, 'wall.generate', 'Muros', 'Generar concreto, encofrado y acero en partidas existentes.')
+        tag_action(self.wall_generate_action, 'wall.generate', 'Muros',
+                   'Elegir destinos de pantalla y zapata para generar el metrado.')
         tag_action(self.wall_edit_action, 'wall.edit', 'Muros', 'Selecciona un detalle del tramo para actualizar longitud, altura y destinos.')
 
     def manage_wall_types(self):
@@ -425,17 +477,28 @@ class PlantillaWindow(QMainWindow):
             return
         self._wall_dialog(instance)
 
-    def _wall_dialog(self, instance=None):
+    def _wall_dialog(self, instance=None, destination=None):
         self._commit_editors()
         try:
-            dialog = WallGeneratorDialog(self.wall_type_store, self.model.rows, self, instance=instance)
-            if dialog.exec() != QDialog.Accepted:
-                return
-            wall, length, height = dialog.configuration()
-            rows = apply_wall(self.model.rows, wall, length, height, dialog.selected_destinations(),
-                              dialog.tramo_name.text(), instance['instance_id'] if instance else None)
-            self.model.replace(rows, 'actualización de muro' if instance else 'generación de muro tipo')
-            self.statusBar().showMessage(f'Tramo «{dialog.tramo_name.text()}» actualizado · {length:g} m.', 8000)
+            item_entries = [dict(id=row['id'], unit=row['cells'][2],
+                                 label=f"{row['cells'][0]} · {row['cells'][1]} · {row['cells'][2]} · Total: {self.model.data(self.model.index(index, 13))}")
+                            for index, row in enumerate(self.model.rows) if row['kind'] == 'item']
+            dialog = WallGeneratorDialog(self.wall_type_store, self.model.rows, self, instance=instance,
+                                         destination=destination, item_entries=item_entries)
+            def generate():
+                try:
+                    wall, length, height = dialog.configuration()
+                    rows = apply_wall(self.model.rows, wall, length, height, dialog.selected_destinations(),
+                                      dialog.tramo_label(), instance['instance_id'] if instance else None,
+                                      dialog.tramo_name.text())
+                    self.model.replace(rows, 'actualización de muro' if instance else 'generación de muro tipo')
+                    dialog.preview.setText(f'Tramo «{dialog.tramo_label()}» generado · {length:g} m. Puedes modificar valores y generar otro.')
+                    self.statusBar().showMessage(f'Tramo «{dialog.tramo_label()}» generado · {length:g} m.', 8000)
+                except (ValueError, sqlite3.Error) as error:
+                    dialog.preview.setText(str(error))
+            dialog.on_generate = generate
+            dialog.exec()
+            dialog.deleteLater()
         except (OSError, ValueError, sqlite3.Error) as error:
             QMessageBox.warning(self, 'Generar muro tipo', str(error))
 

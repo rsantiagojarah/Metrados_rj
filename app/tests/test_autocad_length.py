@@ -1,5 +1,7 @@
 """Length and perimeter transfer from AutoCAD into the active item."""
 import os
+from pathlib import Path
+import tempfile
 import unittest
 import uuid
 from unittest.mock import patch
@@ -9,10 +11,12 @@ from PySide6.QtWidgets import QApplication
 
 import metrado._enlace as engine
 from metrado.autocad_bridge import BridgeProtocol, PROTOCOL_VERSION
-from metrado.autocad_integration import AutoCadRequestDispatcher, validate_length_request
+from metrado.autocad_integration import AutoCadRequestDispatcher, validate_length_request, validate_point_distance_request
 from metrado.hierarchy import renumber
 from metrado.sheet import new_row
 from metrado.window import PlantillaWindow
+from metrado.wall_dialog import WallGeneratorDialog
+from metrado.wall_types import WallTypeStore
 
 
 APP = QApplication.instance() or QApplication([])
@@ -39,6 +43,7 @@ def rows():
 
 class AutoCadLengthTests(unittest.TestCase):
     def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
         self.window = PlantillaWindow(engine)
         self.window._load('Prueba', rows())
         self.window.show()
@@ -49,6 +54,51 @@ class AutoCadLengthTests(unittest.TestCase):
             self.window.close()
         self.window.deleteLater()
         APP.processEvents()
+        self.temp.cleanup()
+
+    def test_length_command_fills_the_focused_wall_dialog_field_without_new_rows(self):
+        target = next(row for row in self.window.model.rows
+                      if row['kind'] == 'item' and row['cells'][2] == 'm3')
+        dialog = WallGeneratorDialog(WallTypeStore(Path(self.temp.name) / 'types.db'), self.window.model.rows,
+                                     self.window, destination=dict(id=target['id'], unit='m3', label='Muro · m3'))
+        dialog.show()
+        dialog.length.setFocus()
+        APP.processEvents()
+        dispatcher = AutoCadRequestDispatcher(self.window)
+        original_count = len(self.window.model.rows)
+        reply = dispatcher.dispatch(message('length_measurement', payload={
+            'name': 'MURO', 'length_m': 12.75, 'entity_count': 2,
+        }))
+        self.assertEqual(dialog.length.text(), '12.75')
+        self.assertEqual(reply['field'], 'longitud de muro')
+        self.assertEqual(len(self.window.model.rows), original_count)
+        dispatcher.dispatch(message('length_measurement', payload={
+            'measurements': [
+                {'name': 'A', 'length_m': 3.25, 'entity_count': 1},
+                {'name': 'B', 'length_m': 4.5, 'entity_count': 1},
+            ],
+        }))
+        self.assertEqual(dialog.length.text(), '7.75')
+        dialog.reject()
+        self.assertIsNone(self.window._autocad_length_target)
+
+    def test_two_point_distance_fills_wall_field_or_selected_dimension_without_new_rows(self):
+        target = next(row for row in self.window.model.rows
+                      if row['kind'] == 'item' and row['cells'][2] == 'm3')
+        dialog = WallGeneratorDialog(WallTypeStore(Path(self.temp.name) / 'types.db'), self.window.model.rows,
+                                     self.window, destination=dict(id=target['id'], unit='m3', label='Muro · m3'))
+        dialog.show(); dialog.length.setFocus(); APP.processEvents()
+        dispatcher = AutoCadRequestDispatcher(self.window)
+        dispatcher.dispatch(message('point_distance', payload={'length_m': 9.125, 'drawing_unit': 'm'}))
+        self.assertEqual(dialog.length.text(), '9.125')
+        dialog.reject()
+        self.window._select(3)
+        self.window.insert_autocad_length('BASE', 1, 1)
+        self.window._select(4, 4)
+        dispatcher.dispatch(message('point_distance', payload={'length_m': 4.25}))
+        self.assertEqual(self.window.model.rows[4]['cells'][4], '4.25')
+        with self.assertRaises(ValueError):
+            validate_point_distance_request({'type': 'point_distance', 'payload': {'length_m': 0}})
 
     def test_meter_item_receives_direct_length_and_undoes(self):
         self.window._select(1)

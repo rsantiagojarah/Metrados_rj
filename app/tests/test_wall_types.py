@@ -70,9 +70,9 @@ class WallTypeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             store = WallTypeStore(Path(folder) / 'muros.sqlite3')
             dialog = WallGeneratorDialog(store, rows)
-            self.assertEqual(dialog.destinations['m3'].count(), 2)
-            self.assertEqual(dialog.destinations['m2'].count(), 2)
-            self.assertEqual(dialog.destinations['kg'].count(), 2)
+            self.assertEqual(set(dialog.destinations), {'pantalla:m3', 'zapata:m3', 'pantalla:m2',
+                                                         'zapata:m2', 'pantalla:kg', 'zapata:kg'})
+            self.assertTrue(all(button.text() == 'Buscar partida…' for button in dialog.destinations.values()))
             wall, length, height = dialog.configuration()
             self.assertEqual((wall.name, length, height), ('Muro modelo', 1, None))
             dialog.deleteLater()

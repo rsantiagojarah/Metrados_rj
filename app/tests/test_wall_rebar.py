@@ -136,11 +136,10 @@ class WallRebarTests(unittest.TestCase):
         self.assertAlmostEqual(key.body[0][0],4.45-.6-.4*1.9/.7)
         self.assertAlmostEqual(key.body_length,4.688327103109606)
         longitudinal=reinforcement(wall,entry(wall,'dentellon'),10)
-        self.assertEqual(longitudinal.distribution,key.body)
+        self.assertEqual(longitudinal.distribution,((3.85,-1.9),(4.45,-1.9)))
         points=spaced_points(longitudinal.distribution,.25)
-        self.assertEqual(len(points),20)
-        self.assertEqual(points[0],key.body[0])
-        self.assertAlmostEqual(points[-1][1],0)
+        self.assertEqual(len(points),4)
+        self.assertTrue(all(point[1] == -1.9 for point in points))
 
     def test_hooks_are_independent_added_once_and_not_counted_as_distribution(self):
         wall=default_wall_type()
