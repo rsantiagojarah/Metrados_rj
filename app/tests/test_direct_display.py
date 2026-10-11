@@ -50,6 +50,13 @@ class DirectDisplayTests(unittest.TestCase):
         self.assertEqual(model.data(model.index(1, 5)), '0,2')
         self.assertEqual(model.values[(1, 10)], 5)
 
+    def test_direct_length_uses_length_label_and_keeps_its_result_column(self):
+        model = self.model('m')
+        model.setData(model.index(1, 3), '4')
+        model.set_direct(1, '8,6275')
+        self.assertEqual(model.data(model.index(1, 4)), 'LONGITUD')
+        self.assertAlmostEqual(model.values[(1, 8)], 34.51)
+
     def test_excel_matches_label_value_and_result(self):
         with tempfile.TemporaryDirectory() as folder:
             for unit, label, result in [('m2', 'ÁREA', 'J13'), ('m3', 'VOLUMEN', 'K13')]:
@@ -69,3 +76,19 @@ class DirectDisplayTests(unittest.TestCase):
                 finally:
                     book.close()
                     cached.close()
+
+    def test_excel_uses_length_label_for_direct_linear_measurement(self):
+        model = self.model('m')
+        model.setData(model.index(1, 3), '4')
+        model.set_direct(1, '8,6275')
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'longitud.xlsx'
+            export_workbook(path, 'Longitud', model.rows, engine)
+            book = load_workbook(path)
+            try:
+                sheet = book['Desarrollo']
+                self.assertEqual(sheet['F13'].value, 'LONGITUD')
+                self.assertEqual(sheet['E13'].value, 8.6275)
+                self.assertIn('D13*H13*E13', sheet['I13'].value)
+            finally:
+                book.close()

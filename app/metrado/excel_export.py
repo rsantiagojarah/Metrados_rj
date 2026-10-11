@@ -32,7 +32,7 @@ from metrado.swelling import volume_blocks, upgrade_legacy
 PENDING = 'Pendiente'
 NS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'
 NUMBER_FORMAT = '#,##0.00;[Red]-#,##0.00;0.00'
-INPUT_FORMAT = '0.00####;[Red]-0.00####;0.00'
+INPUT_FORMAT = NUMBER_FORMAT
 COUNT_FORMAT = 'General'
 FONT = 'Arial Narrow'
 BODY_SIZE = 8
@@ -280,6 +280,20 @@ class ExcelReport:
         return self.catalogs[key], catalog
 
     def _development(self):
+        item_ends = {}
+        owner = None
+        detail_kinds = {'detail', 'detail_group', 'detail_subgroup'}
+        for i, row in enumerate(self.rows):
+            if row['kind'] == 'item':
+                if owner is not None:
+                    item_ends[owner] = i - 1
+                owner = i
+            elif owner is not None and row['kind'] not in detail_kinds:
+                item_ends[owner] = i - 1
+                owner = None
+        if owner is not None:
+            item_ends[owner] = len(self.rows) - 1
+        item_end_rows = set(item_ends.values())
         cursor = FIRST_ROW
         for i, row in enumerate(self.rows):
             self.positions[i] = cursor
@@ -287,19 +301,17 @@ class ExcelReport:
             if i in self.ends:
                 self.footers[i] = cursor
                 cursor += 1
+            if i in item_end_rows:
+                self.dev.row_dimensions[cursor].height = 6
+                cursor += 1
         self.last_row = max(FIRST_ROW - 1, cursor - 1)
         source_positions = {row['id']: self.positions[i] for i, row in enumerate(self.rows)
                             if row['kind'] == 'item' and row.get('id')}
         for r in range(FIRST_ROW, cursor):
             self.dev.cell(r, 15, 0)
-        owner, item_end = None, {}
         for i, row in enumerate(self.rows):
             r = self.positions[i]
             kind, cells = row['kind'], row['cells']
-            if kind not in ('detail', 'detail_group'):
-                if owner is not None:
-                    item_end[owner] = r - 1
-                owner = i if kind == 'item' else None
             style = ('subchapter' if row['level'] else 'chapter') if kind == 'chapter' else kind if kind != 'detail' else None
             self._row(self.dev, r, cells[:3], style)
             self._text_height(self.dev, r, cells[1], WIDTHS[1] - 3)
@@ -317,9 +329,8 @@ class ExcelReport:
                     self._formula(self.dev, f'O{r}', f'{result_col}{r}', self.values.get((i, RESULT_COLUMN[cells[2]]), PENDING))
             if i in self.ends:
                 self._factor(i)
-        if owner is not None:
-            item_end[owner] = cursor - 1
-        for i, end in item_end.items():
+        for i, last in item_ends.items():
+            end = self.footers.get(last, self.positions[last])
             r = self.positions[i]
             if end == r:
                 expression = '0'
@@ -375,11 +386,11 @@ class ExcelReport:
             self._input(r, value_column, row['direct'])
             address = f'{letter(value_column)}{r}'
             required.append(address); conditions.append(f'{address}>0'); terms.append(address)
-            label = {'m2': 'ÁREA', 'm3': 'VOLUMEN'}.get(unit, 'DIRECTO')
+            label = {'m': 'LONGITUD', 'm2': 'ÁREA', 'm3': 'VOLUMEN'}.get(unit, 'DIRECTO')
             _literal(self.dev[f'{label_column}{r}'], label)
             self.dev[f'{label_column}{r}'].font = Font(name=FONT, size=8, italic=True, color='000000')
             if labeled:
-                self.dev[address].number_format = '0.############'
+                self.dev[address].number_format = NUMBER_FORMAT
         elif unit == 'm2':
             for c in range(5, 8):
                 self._input(r, c, cells[c - 1])

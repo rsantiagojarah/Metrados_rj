@@ -123,3 +123,31 @@ Agregar `MTRDISTANCIA`: toma dos puntos en AutoCAD y pasa la distancia en metros
 - [x] Compilar el complemento de AutoCAD 2021.
 
 Evidencia: `test_autocad_length.py` 8/8 aprobado, incluida distancia a campo de muro y a celda de planilla, sin agregar filas. El complemento se compiló correctamente en `target/autocad/Metrados.AutoCAD2021.bundle`; `git diff --check` sin errores.
+
+## Compatibilidad de atajos F1
+Una configuración guardada antes de añadir el generador de muros podía conservar `F1` para la ayuda y entrar en conflicto con el nuevo `F1` de «Generar muro tipo».
+- [x] Migrar automáticamente esa asignación antigua a `Mayús+F1` al abrir o configurar atajos.
+- [x] Conservar los demás atajos personalizados y guardar la configuración reparada.
+
+Evidencia: `test_shortcut_configuration.py` verifica una configuración antigua con ayuda en `F1`, generación de muro en `F1`, ayuda en `Mayús+F1` y persistencia de la corrección.
+
+## Formato decimal de Excel
+Evitar cifras residuales largas en las celdas visibles de dimensiones, cantidades directas y metrados al exportar a Excel.
+- [x] Mostrar dos decimales en la planilla exportada.
+- [x] Conservar el valor y las fórmulas de cálculo internos sin redondearlos.
+
+Evidencia: `test_area_base.py` comprueba que el área directa conserva su valor 125,50 y se presenta con dos decimales.
+
+## Separadores entre partidas en Excel
+Insertar una fila vacía en «Desarrollo» al terminar los detalles de cada partida, incluida la fila FE cuando corresponda.
+- [x] Crear separadores visuales de altura reducida sin fórmulas ni valores visibles.
+- [x] Conservar posiciones correctas para totales, referencias y vínculos desde «Resumen».
+
+Evidencia: `test_excel_export.py` verifica filas separadoras, altura, siguiente partida y vínculo del Resumen.
+
+## Etiqueta de longitud directa
+Las cantidades directas de partidas medidas en metros deben identificar su base como «LONGITUD», de la misma forma que m² usa «ÁREA» y m³ usa «VOLUMEN».
+- [x] Mostrar «LONGITUD» en la planilla y el reporte Excel para unidad `m`.
+- [x] Conservar la cantidad calculada en la columna Lon.
+
+Evidencia: `test_direct_display.py` comprueba la etiqueta y el resultado de longitud directa en pantalla y Excel.

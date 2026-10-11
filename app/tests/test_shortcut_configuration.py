@@ -140,6 +140,16 @@ class ShortcutWindowTests(unittest.TestCase):
             second.deleteLater()
             QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
+    def test_legacy_f1_help_is_migrated_to_shift_f1_for_wall_generation(self):
+        self.store.save({'help.reference': ['F1']}, None)
+        self.window.keyboard.load_configuration()
+
+        self.assertEqual(self.window.wall_generate_action.shortcut(), QKeySequence('F1'))
+        self.assertEqual(self.window.keyboard.actions['help'].shortcut(), QKeySequence('Shift+F1'))
+        saved, _ = self.store.read()
+        self.assertEqual(saved['help.reference'], ['Shift+F1'])
+        self.assertEqual(saved['wall.generate'], ['F1'])
+
     def test_copy_shortcut_can_change_without_hijacking_text_editor_copy(self):
         keyboard = self.window.keyboard
         configuration = {key: list(value) for key, value in keyboard.configuration.items()}

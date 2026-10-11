@@ -96,6 +96,23 @@ class ExcelExportTests(unittest.TestCase):
         self.assertNotIn('O', str(book['Desarrollo'].print_area))
         self.assertFalse(any(cell.comment for sheet in book for row in sheet for cell in row))
 
+    def test_development_adds_a_blank_separator_after_each_item(self):
+        rows = geometry('m', 1)
+        rows += geometry('m', 1)
+        rows[2]['cells'][0] = '02'
+        rows[2]['cells'][1] = 'SEGUNDA PARTIDA'
+        report = ExcelReport('Obra', rows, engine)
+        book, _ = self.read(rows)
+        sheet = book['Desarrollo']
+        first_separator = report.positions[1] + 1
+        second_separator = report.positions[3] + 1
+        self.assertTrue(all(sheet.cell(first_separator, column).value is None for column in range(1, 15)))
+        self.assertTrue(all(sheet.cell(second_separator, column).value is None for column in range(1, 15)))
+        self.assertEqual(sheet.row_dimensions[first_separator].height, 6)
+        self.assertEqual(sheet['A' + str(report.positions[2])].value, '02')
+        self.assertEqual(book['Resumen']['D13'].value,
+                         f"='Desarrollo'!N{report.positions[2]}")
+
     def test_every_initial_total_equals_engine_without_mutating_document(self):
         for rows in (example_rows(), comprehensive_rows()):
             before = deepcopy(rows)
@@ -150,20 +167,27 @@ class ExcelExportTests(unittest.TestCase):
         self.assertEqual(book['Desarrollo']['I9'].value, 'METRADO')
 
     def test_portrait_steel_display_rounds_without_losing_weight_precision(self):
-        book, cache = self.read(comprehensive_rows())
-        self.assertEqual(book['Desarrollo']['K21'].number_format, '0.00')
-        self.assertEqual(cache['Desarrollo']['K21'].value,
-                         float(comprehensive_rows()[8]['steel_catalog']['1/2"']['weight']))
-        self.assertTrue(book['Desarrollo']['N20'].alignment.shrink_to_fit)
-        self.assertEqual(book['Desarrollo']['B20'].font.sz, 8)
+        rows = comprehensive_rows()
+        report = ExcelReport('Obra', rows, engine)
+        book, cache = self.read(rows)
+        steel = report.positions[8]
+        item = report.positions[7]
+        self.assertEqual(book['Desarrollo'][f'K{steel}'].number_format, '0.00')
+        self.assertEqual(cache['Desarrollo'][f'K{steel}'].value,
+                         float(rows[8]['steel_catalog']['1/2"']['weight']))
+        self.assertTrue(book['Desarrollo'][f'N{item}'].alignment.shrink_to_fit)
+        self.assertEqual(book['Desarrollo'][f'B{item}'].font.sz, 8)
 
     def test_steel_uses_item_row_labels_without_extra_gray_header(self):
-        book, cache = self.read(comprehensive_rows())
+        rows = comprehensive_rows()
+        report = ExcelReport('Obra', rows, engine)
+        book, cache = self.read(rows)
         sheet = book['Desarrollo']
-        self.assertEqual([sheet.cell(20, c).value for c in (6, 7, 10, 11)],
+        item, steel = report.positions[7], report.positions[8]
+        self.assertEqual([sheet.cell(item, c).value for c in (6, 7, 10, 11)],
                          ['gancho', 'empal.', 'diam.', 'kg/m'])
-        self.assertEqual(cache['Desarrollo']['B21'].value, 'Barra principal 4 Ø1/2"')
-        self.assertIsNone(sheet['B21'].fill.fill_type)
+        self.assertEqual(cache['Desarrollo'][f'B{steel}'].value, 'Barra principal 4 Ø1/2"')
+        self.assertIsNone(sheet[f'B{steel}'].fill.fill_type)
         self.assertNotIn('ACERO · longitudes en m',
                          [sheet.cell(r, 2).value for r in range(12, sheet.max_row + 1)])
 
@@ -203,8 +227,10 @@ class ExcelExportTests(unittest.TestCase):
     def test_pending_in_fe_and_unit_changed_reference_propagates(self):
         rows = comprehensive_rows()
         rows[1]['cells'][4] = ''
+        report = ExcelReport('Obra', rows, engine)
         _, cache = self.read(rows)
-        for address in ('K15', 'N12', 'N16', 'N18'):
+        for address in (f'K{report.footers[2]}', f'N{report.positions[0]}',
+                        f'N{report.positions[3]}', f'N{report.positions[5]}'):
             self.assertEqual(cache['Desarrollo'][address].value, PENDING)
         rows = comprehensive_rows()
         rows[0]['cells'][2] = rows[1]['cells'][2] = rows[2]['cells'][2] = 'm'
@@ -215,34 +241,42 @@ class ExcelExportTests(unittest.TestCase):
 
     def test_reference_links_source_and_factor_only_for_incompatible_units(self):
         rows = comprehensive_rows()
+        report = ExcelReport('Obra', rows, engine)
         book, cache = self.read(rows)
-        self.assertEqual(book['Desarrollo']['E17'].value, '=N12')
-        self.assertIsNone(book['Desarrollo']['F17'].value)
-        self.assertEqual(book['Desarrollo']['F19'].value, 2)
-        self.assertIn('TEXT(F19', book['Desarrollo']['B19'].value)
-        self.assertAlmostEqual(cache['Desarrollo']['N16'].value, -57.6)
-        self.assertAlmostEqual(cache['Desarrollo']['N18'].value, 115.2)
+        same, converted = report.positions[4], report.positions[6]
+        self.assertEqual(book['Desarrollo'][f'E{same}'].value, f'=N{report.positions[0]}')
+        self.assertIsNone(book['Desarrollo'][f'F{same}'].value)
+        self.assertEqual(book['Desarrollo'][f'F{converted}'].value, 2)
+        self.assertIn(f'TEXT(F{converted}', book['Desarrollo'][f'B{converted}'].value)
+        self.assertAlmostEqual(cache['Desarrollo'][f'N{report.positions[3]}'].value, -57.6)
+        self.assertAlmostEqual(cache['Desarrollo'][f'N{report.positions[5]}'].value, 115.2)
 
     def test_forward_reference_and_summary_are_formulas(self):
         rows = geometry('m', 1)
         linked = geometry('m', 1)
         linked[0]['cells'][0] = '02'
         linked[1]['reference'] = make_reference(rows[0], 'm')
+        report = ExcelReport('Obra', linked + rows, engine)
         book, cache = self.read(linked + rows)
-        self.assertEqual(book['Desarrollo']['E13'].value, '=N14')
-        self.assertEqual(book['Resumen']['D12'].value, "='Desarrollo'!N12")
+        self.assertEqual(book['Desarrollo'][f'E{report.positions[1]}'].value,
+                         f'=N{report.positions[2]}')
+        self.assertEqual(book['Resumen']['D12'].value,
+                         f"='Desarrollo'!N{report.positions[0]}")
         self.assertEqual(cache['Resumen']['D12'].value, 2)
 
     def test_steel_automatic_laps_catalog_and_suffix(self):
-        book, cache = self.read(comprehensive_rows())
+        rows = comprehensive_rows()
+        report = ExcelReport('Obra', rows, engine)
+        book, cache = self.read(rows)
         sheet = book['Desarrollo']
-        self.assertIn('ROUNDUP', sheet['G21'].value)
-        self.assertIn('MATCH(J21', sheet['K21'].value)
-        self.assertEqual(sheet['Q21'].value, 2)
-        self.assertEqual(sheet['R21'].value, .4)
-        self.assertEqual(cache['Desarrollo']['F21'].value, .8)
-        self.assertGreater(cache['Desarrollo']['G21'].value, 0)
-        self.assertIn('4 Ø1/2"', cache['Desarrollo']['B21'].value)
+        steel = report.positions[8]
+        self.assertIn('ROUNDUP', sheet[f'G{steel}'].value)
+        self.assertIn(f'MATCH(J{steel}', sheet[f'K{steel}'].value)
+        self.assertEqual(sheet[f'Q{steel}'].value, 2)
+        self.assertEqual(sheet[f'R{steel}'].value, .4)
+        self.assertEqual(cache['Desarrollo'][f'F{steel}'].value, .8)
+        self.assertGreater(cache['Desarrollo'][f'G{steel}'].value, 0)
+        self.assertIn('4 Ø1/2"', cache['Desarrollo'][f'B{steel}'].value)
         self.assertTrue(sheet.data_validations.dataValidation)
 
     def test_zero_hooks_without_override_and_distinct_historical_catalogs(self):
@@ -253,10 +287,11 @@ class ExcelExportTests(unittest.TestCase):
         rows.insert(9, second)
         report = ExcelReport('Obra', rows, engine)
         book, cache = self.read(rows)
-        self.assertIsNone(book['Desarrollo']['R21'].value)
-        self.assertEqual(cache['Desarrollo']['F21'].value, 0)
+        first, duplicate = report.positions[8], report.positions[9]
+        self.assertIsNone(book['Desarrollo'][f'R{first}'].value)
+        self.assertEqual(cache['Desarrollo'][f'F{first}'].value, 0)
         self.assertEqual(len(report.catalogs), 2)
-        self.assertEqual(cache['Desarrollo']['K22'].value, 5)
+        self.assertEqual(cache['Desarrollo'][f'K{duplicate}'].value, 5)
 
     def test_legacy_steel_manual_lengths_and_repetitions_preserved(self):
         rows = [new_row('item', '01', 'Acero', 'kg', 0), steel_detail('Barra', -2, 10, .6, 1, '1"', 5)]

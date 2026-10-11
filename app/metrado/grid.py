@@ -292,7 +292,8 @@ class SheetModel(QAbstractTableModel):
         if c == 13 and r in self.errors and kind == "item":
             return "Pendiente"
         if c == 4 and row["direct"]:
-            return {'m2': 'ÁREA', 'm3': 'VOLUMEN'}.get(row['cells'][2], 'DIRECTO')
+            return {'m': 'LONGITUD', 'm2': 'ÁREA', 'm3': 'VOLUMEN'}.get(
+                row['cells'][2], 'DIRECTO')
         if c == 1:
             return "   " * self.outline.levels[r] + row["cells"][c]
         return row["cells"][c]

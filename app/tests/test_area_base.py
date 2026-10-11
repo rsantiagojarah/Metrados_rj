@@ -105,6 +105,8 @@ class AreaBaseTests(unittest.TestCase):
             cached = load_workbook(xlsx_path, data_only=True)
             try:
                 self.assertEqual(formulas['Desarrollo']['J13'].value, 125.5)
+                self.assertEqual(formulas['Desarrollo']['J13'].number_format,
+                                 '#,##0.00;[Red]-#,##0.00;0.00')
                 self.assertIn('COUNT(E13:G13)=1', formulas['Desarrollo']['K13'].value)
                 self.assertAlmostEqual(cached['Desarrollo']['K13'].value, 12.55)
             finally:

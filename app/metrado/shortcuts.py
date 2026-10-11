@@ -394,12 +394,27 @@ class KeyboardController(QObject):
     def known_ids(self):
         return {binding.action_id for binding in self.bindings}
 
+    def _configuration_from_stored(self, stored):
+        """Merge saved keys and repair the former F1 help default once."""
+        configuration = {key: list(value) for key, value in self.defaults.items()}
+        configuration.update({key: value for key, value in stored.items()
+                              if key in self.known_ids})
+        legacy_help = stored.get('help.reference', [])
+        generated_wall = configuration.get('wall.generate', [])
+        migrated = ('wall.generate' not in stored and 'F1' in generated_wall and
+                    'F1' in legacy_help)
+        if migrated:
+            configuration['help.reference'] = [key for key in legacy_help if key != 'F1']
+            if not configuration['help.reference']:
+                configuration['help.reference'] = ['Shift+F1']
+        return configuration, migrated
+
     def load_configuration(self):
         try:
             stored, self.revision = self.store.read()
-            configuration = {key: list(value) for key, value in self.defaults.items()}
-            configuration.update({key: value for key, value in stored.items()
-                                  if key in self.known_ids})
+            configuration, migrated = self._configuration_from_stored(stored)
+            if migrated:
+                self.revision = self.store.save(configuration, self.revision)
             self.apply_configuration(configuration)
         except (OSError, ValueError, sqlite3.Error) as error:
             self.revision = None
@@ -426,9 +441,9 @@ class KeyboardController(QObject):
         self.window._commit_editors()
         try:
             stored, revision = self.store.read()
-            current = {key: list(value) for key, value in self.defaults.items()}
-            current.update({key: value for key, value in stored.items()
-                            if key in self.known_ids})
+            current, migrated = self._configuration_from_stored(stored)
+            if migrated:
+                revision = self.store.save(current, revision)
             current = validate_configuration(current, self.known_ids)
             dialog = ShortcutDialog(self.bindings, current, self.window)
             if dialog.exec() != QDialog.Accepted:
