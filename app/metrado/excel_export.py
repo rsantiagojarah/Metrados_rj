@@ -212,6 +212,7 @@ class ExcelReport:
             self.dev.column_dimensions[letter(c)].hidden = True
         for c, name in ((15, 'Aporte al total (no editar)'), (16, 'Descripción base'), (17, 'N.º ganchos'),
                         (18, 'Gancho personalizado (m)'), (19, 'Empalme unitario (m)'), (20, 'Gancho de catálogo (m)'),
+                        (21, 'Considerar empalmes (1 sí, 0 no)'),
                         (24, 'Diámetro'), (25, 'kg/m'), (26, 'Gancho (m)'), (27, 'Empalme (m)')):
             _literal(self.dev.cell(1, c), name)
 
@@ -430,6 +431,7 @@ class ExcelReport:
             config = row['steel_hooks']
             self._input(r, 17, config['count'], count=True)
             self._input(r, 18, config['override'])
+            self._input(r, 21, 0 if config.get('laps', True) is False else 1, count=True)
             self._formula(self.dev, f'S{r}', f'IFERROR(INDEX($AA${start}:$AA${end},{match}),"{PENDING}")', _number(entry.get('lap', ''), PENDING))
             self._formula(self.dev, f'T{r}', f'IFERROR(INDEX($Z${start}:$Z${end},{match}),"{PENDING}")', _number(entry.get('hook', ''), PENDING))
             try:
@@ -442,7 +444,8 @@ class ExcelReport:
                                      [f'OR(Q{r}=0,Q{r}=1,Q{r}=2)', f'ISNUMBER({chosen})', f'{chosen}>0'])
             self._formula(self.dev, f'F{r}', hook_expression, hook)
             # ROUND removes binary noise at exact 9 m boundaries; no lap feeds back into itself.
-            lap_expression = f'MAX(0,ROUNDUP(ROUND((E{r}+F{r})/9,12),0)-1)*S{r}'
+            # U = 0 keeps a length that already includes splices from gaining another one.
+            lap_expression = f'IF(U{r}=0,0,MAX(0,ROUNDUP(ROUND((E{r}+F{r})/9,12),0)-1)*S{r})'
             self._formula(self.dev, f'G{r}', _guard(lap_expression, [f'E{r}', f'F{r}', f'S{r}'],
                                                    [f'E{r}>0', f'F{r}>=0', f'S{r}>0']), lap)
         else:

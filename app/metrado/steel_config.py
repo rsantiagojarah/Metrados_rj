@@ -68,8 +68,9 @@ def validate_row(row):
             raise ValueError('Los ganchos se aplican a detalles, no a la partida.')
         return
     config = row.get('steel_hooks')
-    if (not isinstance(config, dict) or set(config) != {'count', 'override'} or
-            type(config['count']) is not int or config['count'] not in (0, 1, 2)):
+    if (not isinstance(config, dict) or not {'count', 'override'} <= set(config) <= {'count', 'override', 'laps'} or
+            type(config['count']) is not int or config['count'] not in (0, 1, 2) or
+            ('laps' in config and type(config['laps']) is not bool)):
         raise ValueError('Configuración de ganchos inválida.')
     if config['override'] is not None:
         number(config['override'])
@@ -94,13 +95,26 @@ def adopt(row, catalog, *, preserve_hooks=False):
         sync_dimensions(row)
 
 
+def set_laps(config, enabled):
+    """True keeps the 9 m rule. False stores an explicit omission; absence means True."""
+    if type(enabled) is not bool:
+        raise ValueError('Elige si los empalmes se calculan o se omiten.')
+    if enabled:
+        config.pop('laps', None)
+    else:
+        config['laps'] = False
+
+
 def dimensions(row):
     """Per-bar hooks and laps; exact multiples do not introduce an extra splice."""
     config = row['steel_hooks']
     entry = row['steel_catalog'][row['cells'][7]]
     hook = number(config['override'] or entry['hook']) * config['count']
     base = number(row['cells'][4]) + hook
-    count = max(0, int((base / Decimal(9)).to_integral_value(rounding=ROUND_CEILING)) - 1)
+    if config.get('laps', True) is False:
+        count = 0
+    else:
+        count = max(0, int((base / Decimal(9)).to_integral_value(rounding=ROUND_CEILING)) - 1)
     return hook, number(entry['lap']) * count, count
 
 

@@ -19,7 +19,7 @@ from metrado.steel_config import FIELDS
 from metrado.references import FIELDS as REFERENCE_FIELDS
 
 APPLICATION_ID = 0x4D455452  # METR
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 SQLITE_HEADER = b'SQLite format 3\x00'
 # Visible columns and steel-specific inputs are explicit, queryable SQL columns.
 INPUT_COLUMNS = ('code', 'description', 'unit', 'similar_elements', 'length',
@@ -99,8 +99,15 @@ def _create_steel_tables(connection):
     )''')
     connection.execute('''CREATE TABLE steel_hooks (
         node_id TEXT PRIMARY KEY NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
-        count INTEGER NOT NULL CHECK(count IN (0, 1, 2)), override TEXT
+        count INTEGER NOT NULL CHECK(count IN (0, 1, 2)), override TEXT,
+        laps INTEGER NOT NULL DEFAULT 1 CHECK(laps IN (0, 1))
     )''')
+
+
+def _ensure_lap_choice(connection):
+    names = {row[1] for row in connection.execute('PRAGMA table_info(steel_hooks)')}
+    if 'laps' not in names:
+        connection.execute('ALTER TABLE steel_hooks ADD COLUMN laps INTEGER NOT NULL DEFAULT 1')
 
 
 def _create_references(connection):
@@ -133,7 +140,8 @@ def _sync_steel(connection, rows):
             entries[(row['id'], dia)] = (row['id'], dia, *(entry[f] for f in FIELDS))
         if 'steel_hooks' in row:
             config = row['steel_hooks']
-            hooks[(row['id'],)] = (row['id'], config['count'], config['override'])
+            laps = 0 if config.get('laps', True) is False else 1
+            hooks[(row['id'],)] = (row['id'], config['count'], config['override'], laps)
     changed = False
     for table, keys, desired in (('steel_catalog', ('node_id', 'diameter'), entries),
                                   ('steel_hooks', ('node_id',), hooks)):
@@ -142,7 +150,7 @@ def _sync_steel(connection, rows):
         updates = [record for key, record in desired.items() if old.get(key) != record]
         where = ' AND '.join(key + '=?' for key in keys)
         connection.executemany(f'DELETE FROM {table} WHERE {where}', removed)
-        marks = ','.join('?' for _ in range(5 if table == 'steel_catalog' else 3))
+        marks = ','.join('?' for _ in range(5 if table == 'steel_catalog' else 4))
         connection.executemany(f'INSERT OR REPLACE INTO {table} VALUES ({marks})', updates)
         changed |= bool(removed or updates)
     return changed
@@ -236,10 +244,14 @@ def read_database(path):
                 if node_id not in by_id:
                     raise ValueError('El catálogo de acero contiene una referencia inválida.')
                 by_id[node_id].setdefault('steel_catalog', {})[diameter] = dict(weight=weight, hook=hook, lap=lap)
-            for node_id, count, override in connection.execute('SELECT * FROM steel_hooks'):
-                if node_id not in by_id:
+            hook_query = ('SELECT node_id, count, override, laps FROM steel_hooks' if version >= 8 else
+                           'SELECT node_id, count, override, 1 FROM steel_hooks')
+            for node_id, count, override, laps in connection.execute(hook_query):
+                if node_id not in by_id or laps not in (0, 1):
                     raise ValueError('Los ganchos contienen una referencia inválida.')
                 by_id[node_id]['steel_hooks'] = dict(count=count, override=override)
+                if laps == 0:
+                    by_id[node_id]['steel_hooks']['laps'] = False
         if version >= 5:
             for node_id, *fields in connection.execute('SELECT node_id, ' + ', '.join(REFERENCE_FIELDS) + ' FROM detail_references'):
                 if node_id not in by_id:
@@ -324,6 +336,8 @@ def write_database(path, title, rows, expected_revision=None):
                     _create_references(connection)
                 if version < 7:
                     _create_wall_table(connection)
+                if version < 8:
+                    _ensure_lap_choice(connection)
                 connection.execute(f'PRAGMA user_version = {SCHEMA_VERSION}')
             old_swelling = {record[0]: record for record in connection.execute('SELECT item_id, enabled, percent, note FROM item_swelling')}
             old_factors = {record[0]: record for record in connection.execute('SELECT detail_id, block_id, factor, note FROM detail_swelling')}

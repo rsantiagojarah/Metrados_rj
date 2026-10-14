@@ -642,10 +642,30 @@ class SheetModel(QAbstractTableModel):
             owner = self._owners[i]
             if owner is not None and 'steel_catalog' not in rows[owner]:
                 sc.adopt(rows[owner], catalog)
+            omit = (row.get('steel_hooks') or {}).get('laps') is False
             sc.adopt(row, catalog)
             row['steel_hooks'] = dict(count=count, override=override)
+            if omit:
+                row['steel_hooks']['laps'] = False
             sc.sync_dimensions(row)
         self.replace(rows, 'aplicación de ganchos', (indexes[0], 1), (indexes[0], 1))
+
+    def apply_steel_laps(self, selected, enabled):
+        if type(enabled) is not bool:
+            raise ValueError('Elige si los empalmes se calculan o se omiten.')
+        indexes = sc.selected_details(self.rows, selected)
+        rows = deepcopy(self.rows)
+        for i in indexes:
+            row = rows[i]
+            catalog = self.steel_catalog_for(i)
+            owner = self._owners[i]
+            if owner is not None and 'steel_catalog' not in rows[owner]:
+                sc.adopt(rows[owner], catalog)
+            sc.adopt(row, catalog, preserve_hooks=True)
+            sc.set_laps(row['steel_hooks'], enabled)
+            sc.sync_dimensions(row)
+        self.replace(rows, 'cálculo de empalmes' if enabled else 'empalmes omitidos',
+                     (indexes[0], 1), (indexes[0], 1))
 
     def update_steel_catalog(self, catalog):
         sc.validate_catalog(catalog)

@@ -219,3 +219,41 @@ class HooksDialog(QDialog):
             self.refresh()
             return
         super().accept()
+
+
+class LapsDialog(QDialog):
+    """Choose whether the selection adds splices or keeps the typed length."""
+
+    def __init__(self, rows, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle('Empalmes')
+        self.resize(520, 280)
+        layout = QVBoxLayout(self)
+        layout.addWidget(label(
+            f'{len(rows)} detalle(s) seleccionado(s). '
+            'Si el largo que escribiste ya incluye los empalmes, no los vuelvas a sumar.'))
+        calculating = [row.get('steel_hooks', {}).get('laps', True) is not False for row in rows]
+        self.choice = QComboBox()
+        self.choice.addItems(['No considerar empalmes', 'Calcular empalmes (tramos de 9 m)'])
+        self.choice.setCurrentIndex(0 if any(calculating) else 1)
+        form = QFormLayout()
+        form.addRow('Para toda la selección:', self.choice)
+        layout.addLayout(form)
+        layout.addWidget(label(
+            'No considerarlos deja la columna Empalme en 0. La longitud usa solo Largo + ganchos. '
+            'Calcularlos suma un empalme por cada tramo de 9 m. Los ganchos no cambian.'))
+        if any(calculating) and not all(calculating):
+            layout.addWidget(label('La selección mezcla detalles con y sin empalmes. La opción se aplica a todos.'))
+        if any('steel_hooks' not in row for row in rows):
+            layout.addWidget(label(
+                'Esta selección incluye detalles antiguos: al aplicar, usarán la tabla de la partida. '
+                'Si no consideras empalmes, esa columna quedará en 0. Puedes deshacer con Ctrl+Z.'))
+        self.buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        self.buttons.button(QDialogButtonBox.Ok).setText('Aplicar')
+        self.buttons.button(QDialogButtonBox.Cancel).setText('Cancelar')
+        self.buttons.accepted.connect(self.accept)
+        self.buttons.rejected.connect(self.reject)
+        layout.addWidget(self.buttons)
+
+    def configuration(self):
+        return self.choice.currentIndex() == 1

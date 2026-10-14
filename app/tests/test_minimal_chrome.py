@@ -45,7 +45,7 @@ class MinimalChromeTests(unittest.TestCase):
     def test_every_command_has_flat_button_and_overflow_proxy(self):
         sources = {action.source for action in self.toolbar.actions() if isinstance(action, FlatAction)}
         expected = {*self.window.command_actions, self.window.undo_action, self.window.redo_action,
-                    self.window.swelling_action, self.window.hooks_action,
+                    self.window.swelling_action, self.window.hooks_action, self.window.laps_action,
                     *(self.window.row_actions[k] for k in ('up', 'down', 'indent', 'outdent', 'move', 'copy', 'paste'))}
         self.assertEqual(sources, expected)
         self.assertEqual(len(self.toolbar.findChildren(ActionButton)), len(expected))

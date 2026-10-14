@@ -191,6 +191,7 @@ class KeyboardTests(unittest.TestCase):
     def test_global_and_contextual_form_shortcuts(self):
         self.detail(10, 4)
         for action, key in ((self.window.hooks_action, Qt.Key_H),
+                             (self.window.laps_action, Qt.Key_L),
                              (self.window.catalog_action, Qt.Key_A),
                              (self.window.update_steel_action, Qt.Key_U),
                              (self.window.export_action, Qt.Key_J)):

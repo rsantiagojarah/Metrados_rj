@@ -21,7 +21,7 @@ from metrado.database import ConflictError, SCHEMA_VERSION, read_database, write
 from metrado.grid import SheetModel
 from metrado.hierarchy import materialize
 from metrado.sheet import calculate, new_row, read_project, steel_detail, validate_project, write_project
-from metrado.steel_dialog import CatalogDialog, HooksDialog
+from metrado.steel_dialog import CatalogDialog, HooksDialog, LapsDialog
 from metrado.steel_store import CatalogStore
 from metrado.window import PlantillaWindow
 
@@ -68,6 +68,17 @@ class SteelRulesTests(unittest.TestCase):
         row['steel_catalog']['1/2"']['lap'] = '100'
         self.assertEqual(sc.dimensions(row)[2], 1)
 
+    def test_omitted_laps_stay_zero_past_nine_meters(self):
+        row = sample()[2]
+        self.assertGreater(sc.dimensions(row)[2], 0)
+        row['steel_hooks']['laps'] = False
+        hook, lap, count = sc.dimensions(row)
+        self.assertEqual(hook, sc.dimensions(sample()[2])[0])
+        self.assertEqual((lap, count), (Decimal(0), 0))
+        sc.set_laps(row['steel_hooks'], True)
+        self.assertNotIn('laps', row['steel_hooks'])
+        self.assertGreater(sc.dimensions(row)[2], 0)
+
     def test_catalog_rejects_invalid_entries(self):
         for bad in ('0', '-1', 'NaN', 'Infinity', '', 'abc', '1e999'):
             for field in sc.FIELDS:
@@ -83,6 +94,7 @@ class SteelRulesTests(unittest.TestCase):
         for change in (lambda r: r.update(steel_hooks={'count': True, 'override': None}),
                        lambda r: r.update(steel_hooks={'count': 3, 'override': None}),
                        lambda r: r.update(steel_hooks={'count': 1, 'override': 'NaN'}),
+                       lambda r: r['steel_hooks'].__setitem__('laps', 0),
                        lambda r: r.pop('steel_catalog'),
                        lambda r: r['cells'].__setitem__(2, 'm3')):
             row = sample()[1]
@@ -236,6 +248,29 @@ class SteelModelTests(unittest.TestCase):
         self.assertEqual(self.model.rows[1]['steel_hooks']['count'], 0)
         self.assertEqual(self.model.rows[1]['cells'][7], '')
 
+    def test_omit_laps_lowers_weight_and_hooks_keep_the_choice(self):
+        before = deepcopy(self.model.rows)
+        weight = self.model.values[(2, 12)]
+        self.assertGreater(Decimal(self.model.rows[2]['cells'][6]), 0)
+        self.model.apply_steel_laps([2], False)
+        self.assertEqual(Decimal(self.model.rows[2]['cells'][6]), 0)
+        self.assertIs(self.model.rows[2]['steel_hooks']['laps'], False)
+        self.assertLess(self.model.values[(2, 12)], weight)
+        bar = self.model.rows[2]
+        developed = float(bar['cells'][4]) + float(bar['cells'][5])
+        self.assertAlmostEqual(self.model.values[(2, 8)],
+                               developed * float(bar['cells'][3]) * self.model.values[(2, 7)])
+        self.model.apply_steel_hooks([2], 1)
+        self.assertIs(self.model.rows[2]['steel_hooks']['laps'], False)
+        self.assertEqual(Decimal(self.model.rows[2]['cells'][6]), 0)
+        self.model.apply_steel_laps([2], True)
+        self.assertNotIn('laps', self.model.rows[2]['steel_hooks'])
+        self.assertGreater(Decimal(self.model.rows[2]['cells'][6]), 0)
+        self.model.undo_stack.undo()
+        self.model.undo_stack.undo()
+        self.model.undo_stack.undo()
+        self.assertEqual(self.model.rows, before)
+
     def test_copy_paste_preserves_values_even_in_another_catalog(self):
         self.model.apply_steel_hooks([1, 2], 2, '.4')
         mime = encode_rows(self.model, [1, 2])
@@ -300,6 +335,35 @@ class SteelStorageTests(unittest.TestCase):
         self.assertEqual(write_database(self.path, title, loaded, revision), revision + 1)
         with self.assertRaises(ConflictError):
             write_database(self.path, title, loaded, revision)
+
+    def test_schema_7_keeps_automatic_laps_until_omission_is_saved(self):
+        rows = sample()
+        revision = write_database(self.path, 'Acero', rows)
+        with closing(sqlite3.connect(self.path)) as connection, connection:
+            connection.execute('ALTER TABLE steel_hooks RENAME TO steel_hooks_new')
+            connection.execute('''CREATE TABLE steel_hooks (
+                node_id TEXT PRIMARY KEY NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+                count INTEGER NOT NULL CHECK(count IN (0, 1, 2)), override TEXT)''')
+            connection.execute('INSERT INTO steel_hooks (node_id, count, override) '
+                               'SELECT node_id, count, override FROM steel_hooks_new')
+            connection.execute('DROP TABLE steel_hooks_new')
+            connection.execute('PRAGMA user_version=7')
+        loaded = read_database(self.path)[1]
+        self.assertNotIn('laps', loaded[2]['steel_hooks'])
+        model = SheetModel(engine, loaded)
+        self.assertGreater(Decimal(model.rows[2]['cells'][6]), 0)
+        model.apply_steel_laps([2], False)
+        revision = write_database(self.path, 'Acero', model.rows, revision)
+        with closing(sqlite3.connect(self.path)) as connection:
+            self.assertEqual(connection.execute('PRAGMA user_version').fetchone()[0], SCHEMA_VERSION)
+            self.assertEqual(connection.execute('SELECT laps FROM steel_hooks WHERE node_id=?',
+                                                (model.rows[2]['id'],)).fetchone()[0], 0)
+        restored = SheetModel(engine, read_database(self.path)[1])
+        self.assertIs(restored.rows[2]['steel_hooks']['laps'], False)
+        self.assertEqual(Decimal(restored.rows[2]['cells'][6]), 0)
+        self.assertEqual(write_database(self.path, 'Acero', restored.rows, revision), revision)
+        model.deleteLater()
+        restored.deleteLater()
 
     def test_json_roundtrip_and_old_version_rejects_metadata(self):
         path = self.root / 'export.json'
@@ -403,6 +467,24 @@ class SteelUiTests(unittest.TestCase):
         self.assertEqual(dialog.configuration(), (2, '0,35'))
         self.assertTrue(dialog.buttons.button(QDialogButtonBox.Ok).isEnabled())
         dialog.reject()
+
+    def test_laps_dialog_omits_selected_rows_and_undoes(self):
+        dialog = LapsDialog(self.window.model.rows[1:3], self.window)
+        self.assertIs(dialog.configuration(), False)
+        dialog.choice.setCurrentIndex(1)
+        self.assertIs(dialog.configuration(), True)
+        before = deepcopy(self.window.model.rows)
+        table = self.window.table
+        self.window._select(2)
+        table.clearSelection()
+        table.selectRow(2)
+        with patch.object(LapsDialog, 'exec', return_value=QDialog.Accepted), \
+             patch.object(LapsDialog, 'configuration', return_value=False):
+            self.window.edit_steel_laps()
+        self.assertEqual(self.window.model.rows[1], before[1])
+        self.assertEqual(Decimal(self.window.model.rows[2]['cells'][6]), 0)
+        self.window.model.undo_stack.undo()
+        self.assertEqual(self.window.model.rows, before)
 
     def test_global_edit_leaves_current_work_and_undo_stack_untouched(self):
         before = deepcopy(self.window.model.rows)

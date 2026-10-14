@@ -355,6 +355,7 @@ class KeyboardController(QObject):
         self.actions['configure'] = configure
         # Widget scope keeps spreadsheet commands out of text editors/dialogs.
         for action, shortcut in ((window.hooks_action, 'Ctrl+Shift+H'),
+                                  (window.laps_action, 'Ctrl+Shift+L'),
                                   (window.swelling_action, 'Ctrl+Shift+E')):
             action.setShortcut(shortcut)
             action.setShortcutContext(Qt.WidgetShortcut)
@@ -368,7 +369,7 @@ class KeyboardController(QObject):
             *window.command_actions, *window.row_actions.values(), window.undo_action,
             window.redo_action, window.export_action, window.import_excel_action,
             window.export_excel_action, window.swelling_action, window.catalog_action,
-            window.distribution_format_action, window.hooks_action,
+            window.distribution_format_action, window.hooks_action, window.laps_action,
             window.update_steel_action, window.wall_generate_action, *self.actions.values(),
         ]
         self.bindings = []

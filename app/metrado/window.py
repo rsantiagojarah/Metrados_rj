@@ -27,7 +27,7 @@ from metrado.swelling_dialog import SwellingDialog
 from metrado.navigation import PartidaWorkspace
 from metrado import steel_config as sc
 from metrado.steel_store import CatalogStore
-from metrado.steel_dialog import CatalogDialog, DistributionFormatDialog, HooksDialog
+from metrado.steel_dialog import CatalogDialog, DistributionFormatDialog, HooksDialog, LapsDialog
 from metrado.steel_distribution import (
     DEFAULT_TEMPLATE, distributed_bar_count, parse_distribution,
 )
@@ -324,7 +324,8 @@ class PlantillaWindow(QMainWindow):
         elif mode in ('reference', 'conversion'):
             context = 'Total = valor referenciado × ' + ('factor × ' if mode == 'conversion' else '') + 'Elem. simil. × N.º veces · ' + help_text
         elif mode == 'steel':
-            context = 'Acero: Lon. = Elem. × (Largo + ganchos + empalmes) × N.º veces; Kg = Lon. × kg/m · ' + help_text
+            context = ('Acero: Lon. = Elem. × (Largo + ganchos + empalmes) × N.º veces; Kg = Lon. × kg/m · '
+                        'Empalmes… deja esa columna en 0 · ' + help_text)
         elif (index.isValid() and self.model.rows[index.row()]['kind'] == 'detail' and
               self.model.rows[index.row()]['cells'][2] == 'm3' and
               self.model.rows[index.row()]['cells'][9].strip()):
@@ -424,6 +425,7 @@ class PlantillaWindow(QMainWindow):
         menu.addSeparator()
         menu.addAction(self.swelling_action)
         menu.addAction(self.hooks_action)
+        menu.addAction(self.laps_action)
         menu.addAction(self.wall_edit_action)
         menu.addSeparator()
         menu.addAction('Eliminar bloque…', self.remove_row)
@@ -439,12 +441,17 @@ class PlantillaWindow(QMainWindow):
         self.hooks_action = menu.addAction('Aplicar ganchos…', self.edit_steel_hooks)
         tag_action(self.hooks_action, 'steel.hooks', 'Acero',
                    'Selecciona detalles de acero y aplica 1 o 2 ganchos. Reemplaza los anteriores.')
+        self.laps_action = menu.addAction('Empalmes…', self.edit_steel_laps)
+        tag_action(self.laps_action, 'steel.laps', 'Acero',
+                   'Selecciona detalles de acero. Deja el empalme en cero si el largo ya lo incluye, '
+                   'o vuelve a calcularlo por tramos de 9 m.')
         menu.addSeparator()
         self.update_steel_action = menu.addAction('Actualizar aceros de esta obra…', self.update_project_steel)
         tag_action(self.update_steel_action, 'steel.update_project', 'Acero')
         toolbar = self.findChild(QToolBar, 'actionStrip')
         toolbar.addSeparator()
         add_flat_action(toolbar, self.hooks_action)
+        add_flat_action(toolbar, self.laps_action)
         if self._catalog_error:
             self.catalog_action.setToolTip(self._catalog_error)
 
@@ -548,6 +555,24 @@ class PlantillaWindow(QMainWindow):
                 self.model.apply_steel_hooks(indexes, count, override)
         except ValueError as error:
             QMessageBox.information(self, 'Aplicar ganchos', str(error))
+
+    def edit_steel_laps(self):
+        self._commit_editors()
+        selected = self.table.selected_row_numbers()
+        try:
+            indexes = sc.selected_details(self.model.rows, selected)
+            if self._catalog_error and any('steel_catalog' not in self.model.rows[i] and
+                    'steel_catalog' not in self.model.rows[self.model._owners[i]] for i in indexes):
+                raise ValueError('No se pudo leer la tabla global: ' + self._catalog_error)
+            dialog = LapsDialog([self.model.rows[i] for i in indexes], self)
+            if dialog.exec() == QDialog.Accepted:
+                self.model.apply_steel_laps(indexes, dialog.configuration())
+                omitted = dialog.configuration() is False
+                self.statusBar().showMessage(
+                    'Empalmes en 0. La longitud usa el largo y los ganchos.' if omitted else
+                    'Empalmes calculados por tramos de 9 m.', 8000)
+        except ValueError as error:
+            QMessageBox.information(self, 'Empalmes', str(error))
 
     def update_project_steel(self):
         self._commit_editors()

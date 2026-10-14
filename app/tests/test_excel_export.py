@@ -279,6 +279,17 @@ class ExcelExportTests(unittest.TestCase):
         self.assertIn('4 Ø1/2"', cache['Desarrollo'][f'B{steel}'].value)
         self.assertTrue(sheet.data_validations.dataValidation)
 
+    def test_omitted_laps_export_as_zero(self):
+        rows = comprehensive_rows()
+        rows[8]['steel_hooks']['laps'] = False
+        sc.sync_dimensions(rows[8])
+        report = ExcelReport('Obra', rows, engine)
+        book, cache = self.read(rows)
+        steel = report.positions[8]
+        self.assertIn(f'U{steel}=0', book['Desarrollo'][f'G{steel}'].value)
+        self.assertEqual(book['Desarrollo'][f'U{steel}'].value, 0)
+        self.assertEqual(cache['Desarrollo'][f'G{steel}'].value, 0)
+
     def test_zero_hooks_without_override_and_distinct_historical_catalogs(self):
         rows = comprehensive_rows()
         rows[8]['steel_hooks'] = dict(count=0, override=None)
