@@ -213,6 +213,55 @@ class ExcelExportTests(unittest.TestCase):
         self.assertIn('SUM(K13:K14)*J15', sheet['K15'].value)
         self.assertAlmostEqual(cache['Desarrollo']['N12'].value, 57.6)
 
+    def test_fe_below_one_exports_prorated_volume_not_pending(self):
+        rows = []
+        for code, factor in (('03.01.01.03', '0.80'), ('03.01.01.04', '0.20')):
+            block = geometry(count=1)
+            block[0]['cells'][0] = code
+            block[1]['direct'] = '2915.28'
+            block[1]['volume_factor'] = dict(block=factor, factor=factor, note='')
+            rows.extend(block)
+        report = ExcelReport('Obra', rows, engine)
+        book, cache = self.read(rows)
+        loan, own = report.footers[1], report.footers[3]
+        for footer, expected in ((loan, 2915.28 * 0.8), (own, 2915.28 * 0.2)):
+            formula = book['Desarrollo'][f'K{footer}'].value
+            self.assertIn(f'J{footer}>0', formula)
+            self.assertNotIn(f'J{footer}>=1', formula)
+            self.assertAlmostEqual(cache['Desarrollo'][f'K{footer}'].value, expected)
+        self.assertAlmostEqual(cache['Desarrollo'][f'N{report.positions[0]}'].value, 2915.28 * 0.8)
+        self.assertAlmostEqual(cache['Desarrollo'][f'N{report.positions[2]}'].value, 2915.28 * 0.2)
+
+    def test_values_export_has_no_formulas_and_keeps_fe_below_one(self):
+        rows = geometry(count=1)
+        rows[1]['direct'] = '2915.28'
+        rows[1]['volume_factor'] = dict(block='a', factor='0.80', note='')
+        export_workbook(self.path, 'Obra', rows, engine, formulas=False)
+        book = load_workbook(self.path)
+        self.books.append(book)
+        for sheet in book:
+            for row in sheet.iter_rows():
+                for cell in row:
+                    value = cell.value
+                    self.assertFalse(isinstance(value, str) and value.startswith('='), value)
+        report = ExcelReport('Obra', rows, engine, formulas=False)
+        footer = report.footers[1]
+        self.assertEqual(book['Desarrollo'][f'K{footer}'].value, float(format(2915.28 * 0.8, '.2f')))
+        self.assertEqual(book['Desarrollo'][f'N{report.positions[0]}'].value, float(format(2915.28 * 0.8, '.2f')))
+
+    def test_values_export_matches_planilla_two_decimals(self):
+        rows = geometry('und', 1)
+        rows[1]['direct'] = '343.2149'
+        export_workbook(self.path, 'Obra', rows, engine, formulas=False)
+        book = load_workbook(self.path)
+        self.books.append(book)
+        total, errors = calculate(rows, engine)
+        self.assertFalse(errors)
+        raw = total[0, 13]
+        self.assertEqual(f'{raw:.2f}', '343.21')
+        self.assertEqual(book['Desarrollo']['N12'].value, 343.21)
+        self.assertNotEqual(book['Desarrollo']['N12'].value, raw)
+
     def test_multiple_fe_blocks_and_free_details_contribute_once(self):
         rows = geometry(count=5)
         for i, factor, block in ((1, '1.2', 'a'), (2, '1.2', 'a'), (4, '1.5', 'b'), (5, '1.5', 'b')):
@@ -398,10 +447,14 @@ class ExcelExportWindowTests(unittest.TestCase):
 
     def test_menu_and_palette_only(self):
         action = self.window.export_excel_action
-        self.assertIn(action, self.window.keyboard.commands)
-        self.assertNotIn(action, self.window.findChild(QToolBar, 'actionStrip').actions())
-        self.assertTrue(any(a.menu().title() == 'Archivo' and action in a.menu().actions()
-                            for a in self.window.menuBar().actions()))
+        values = self.window.export_excel_values_action
+        toolbar = self.window.findChild(QToolBar, 'actionStrip').actions()
+        for item in (action, values):
+            self.assertIn(item, self.window.keyboard.commands)
+            self.assertNotIn(item, toolbar)
+            self.assertTrue(any(a.menu().title() == 'Archivo' and item in a.menu().actions()
+                                for a in self.window.menuBar().actions()))
+        self.assertEqual(values.property('shortcut_id'), 'file.export_excel_values')
 
     def test_cancel_preserves_document(self):
         before = deepcopy(self.window.model.rows)

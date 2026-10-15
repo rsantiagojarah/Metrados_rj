@@ -114,7 +114,7 @@ class BlockCalculationTests(unittest.TestCase):
 
     def test_bad_factors_rejected_atomically(self):
         before = deepcopy(self.model.rows)
-        for value in ('0', '0.9', '-1', 'nan', 'inf', '1e999', '', 'text', 1.2):
+        for value in ('0', '-1', 'nan', 'inf', '1e999', '', 'text', 1.2):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 self.model.set_swelling([3, 4], config(value))
         for value in (config(note=1), config(note='x' * 1201), {}):
@@ -122,6 +122,15 @@ class BlockCalculationTests(unittest.TestCase):
                 self.model.set_swelling([3], value)
         self.assertEqual(self.model.rows, before)
         self.assertEqual(factor_number('1,125'), 1.125)
+        self.assertEqual(factor_number('0,80'), 0.8)
+
+    def test_factor_below_one_prorates_and_the_shares_rebuild_the_volume(self):
+        self.model.set_swelling([3], config('0,80', 'Material de préstamo'))
+        self.model.set_swelling([4], config('0,20', 'Material propio'))
+        self.assertEqual(self.model.swelling_summary(3)[8:11], ['FE', '0,80', '19.20'])
+        self.assertEqual(self.model.swelling_summary(4)[8:11], ['FE', '0,20', '4.80'])
+        self.assertAlmostEqual(self.model.values[(3, 14)] + self.model.values[(4, 14)], 24)
+        self.assertAlmostEqual(self.model.values[(1, 13)], 72)
 
     def test_one_is_valid_and_extra_precision_not_rounded_for_calculation(self):
         self.model.set_swelling([3], config('1'))
@@ -406,7 +415,10 @@ class BlockUiTests(unittest.TestCase):
         dialog.factor.setText('1,20')
         self.assertIn('57.60 m³', dialog.preview.text())
         self.assertEqual(dialog.configuration()['factor'], '1,20')
-        for value in ('0.9', 'nan', ''):
+        dialog.factor.setText('0,80')
+        self.assertIn('38.40 m³', dialog.preview.text())
+        self.assertTrue(dialog.buttons.button(QDialogButtonBox.Ok).isEnabled())
+        for value in ('0', 'nan', ''):
             dialog.factor.setText(value)
             self.assertFalse(dialog.buttons.button(QDialogButtonBox.Ok).isEnabled())
             dialog.accept()

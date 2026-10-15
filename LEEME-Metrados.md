@@ -104,11 +104,11 @@ Cerrar, crear una planilla o abrir otra consulta qué hacer con los cambios pend
 
 ## Factor de esponjamiento por bloques de detalles (m³)
 
-Selecciona **uno o varios detalles consecutivos de la misma partida m³**, arrastrando sobre sus celdas o usando Mayús+clic. No incluyas títulos ni partidas en la selección. En el clic derecho, el menú **Edición** o la barra Organizar, elige **Factor de esponjamiento…** e introduce directamente el **FE**, por ejemplo **1,20** (no 20 %). La observación es opcional y se consulta al pasar el cursor por el bloque o su línea FE. El programa no recomienda un valor técnico: utiliza el que corresponda a tu proyecto.
+Selecciona **uno o varios detalles consecutivos de la misma partida m³**, arrastrando sobre sus celdas o usando Mayús+clic. No incluyas títulos ni partidas en la selección. En el clic derecho, el menú **Edición** o la barra Organizar, elige **Factor de esponjamiento…** e introduce directamente el **FE**, por ejemplo **1,20** para esponjar o **0,80** para prorratear (no escribas 20 % ni 80 %). La observación es opcional y se consulta al pasar el cursor por el bloque o su línea FE. El programa no recomienda un valor técnico: utiliza el que corresponda a tu proyecto.
 
 Debajo del bloque aparece **una sola línea**, con las mismas columnas y anchos: **Lon.: FE · Área: 1,20 · Vol.: 57.60**, para dos detalles de 24 m³. Las demás columnas quedan vacías. No hay rótulos BASE/FINAL ni un resumen grande. La línea FE es calculada, no una medición adicional ni un ÍTEM.
 
-**Subtotal del bloque = suma de sus volúmenes originales × FE.** El total de la partida suma los subtotales ajustados y los detalles que no tienen FE, una sola vez. Puedes tener varios bloques con factores diferentes, incluso bloques adyacentes con el mismo factor. Los detalles conservan sus dimensiones y volúmenes originales. Un bloque incompleto muestra **Pendiente** y deja pendiente el total de la partida; los otros bloques válidos mantienen su subtotal. El FE debe ser finito y mayor o igual a 1; se admite coma o punto decimal y no se redondea antes de calcular.
+**Subtotal del bloque = suma de sus volúmenes originales × FE.** El total de la partida suma los subtotales ajustados y los detalles que no tienen FE, una sola vez. Puedes tener varios bloques con factores diferentes, incluso bloques adyacentes con el mismo factor. Los detalles conservan sus dimensiones y volúmenes originales. Un bloque incompleto muestra **Pendiente** y deja pendiente el total de la partida; los otros bloques válidos mantienen su subtotal. El FE debe ser finito y mayor que 0; se admite coma o punto decimal y no se redondea antes de calcular. Si es mayor que 1, esponja el volumen. Si está entre 0 y 1, prorratea: **0,80** es el 80 % y **0,20** es el 20 %. Para repartir un relleno, copia el mismo volumen en las dos partidas (préstamo y material propio) y aplica un FE a cada una; la suma de los dos subtotales recupera el volumen original.
 
 **Doble clic en la línea FE** permite cambiar el factor o **Quitar FE**. También puedes seleccionar un miembro del bloque y abrir la misma acción para editar todo ese bloque. Seleccionar varias filas permite aplicar un nuevo FE solo a ese tramo, sustituyendo el anterior sin superponer ajustes. Ctrl+Z deshace y Ctrl+Y rehace cada cambio.
 
@@ -238,6 +238,10 @@ El instalador no desactiva `SECURELOAD`, no amplía `TRUSTEDPATHS` y no modifica
 Si se abre Metrados después de AutoCAD, el complemento vuelve a intentar la conexión automáticamente. Si hay dos procesos de Metrados, solo el primero publica la sesión para evitar destinos ambiguos; el segundo sigue funcionando normalmente sin reemplazarla.
 
 ## Desarrollo
+
+### Exportar metrados a Excel
+
+**Archivo → Exportar metrados a Excel…** genera Desarrollo y Resumen con fórmulas: si cambias un largo en Excel, se recalculan totales, referencias y FE. **Archivo → Exportar metrados a Excel (solo valores)…** escribe los mismos números que ves en Metrados, ya redondeados a 2 decimales y sin fórmulas; Excel no los vuelve a calcular al abrir (un FE 0,80 no se convierte en Pendiente y un total 343,21 no pasa a 343,22). Ninguna de las dos modifica la base SQLite. Búscalas con «Excel» en **Ctrl+K**.
 
 ### Importar partidas desde Excel
 

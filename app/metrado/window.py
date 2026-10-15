@@ -278,6 +278,11 @@ class PlantillaWindow(QMainWindow):
         self.export_excel_action = file_menu.addAction('Exportar metrados a Excel…', self.export_excel)
         self.export_excel_action.setToolTip('Desarrollo completo y resumen enlazado, editables con fórmulas e impresión A4.')
         tag_action(self.export_excel_action, 'file.export_excel', 'Archivo')
+        self.export_excel_values_action = file_menu.addAction(
+            'Exportar metrados a Excel (solo valores)…', self.export_excel_values)
+        self.export_excel_values_action.setToolTip(
+            'Desarrollo y resumen con los números de Metrados, sin fórmulas. No se recalcula al abrir Excel.')
+        tag_action(self.export_excel_values_action, 'file.export_excel_values', 'Archivo')
         self.export_action = file_menu.addAction('Exportar copia JSON…', self.export_json)
         tag_action(self.export_action, 'file.export_json', 'Archivo')
 
@@ -595,7 +600,7 @@ class PlantillaWindow(QMainWindow):
         self.swelling_action = QAction('Factor de esponjamiento…', self)
         tag_action(self.swelling_action, 'measure.swelling', 'Metrado',
                    'Selecciona detalles consecutivos en m³ y aplica un FE al bloque. '
-                   'Doble clic en FE para editar o quitar.')
+                   'Mayor que 1 esponja; entre 0 y 1 prorratea. Doble clic en FE para editar o quitar.')
         self.swelling_action.triggered.connect(lambda checked=False: self.edit_swelling())
         self.edit_menu.addSeparator()
         self.edit_menu.addAction(self.swelling_action)
@@ -1230,11 +1235,21 @@ class PlantillaWindow(QMainWindow):
         return True
 
     def export_excel(self):
+        return self._write_excel(formulas=True)
+
+    def export_excel_values(self):
+        return self._write_excel(formulas=False)
+
+    def _write_excel(self, formulas):
         self._commit_editors()
         self._commit_title()
-        suggested = self._path.with_suffix('.xlsx') if self._path else Path('Metrados.xlsx')
-        filename, _ = QFileDialog.getSaveFileName(self, 'Exportar desarrollo y resumen de metrados',
-                                                str(suggested), 'Excel (*.xlsx)')
+        if self._path:
+            suggested = self._path.with_suffix('.xlsx') if formulas else self._path.with_name(self._path.stem + '-valores.xlsx')
+        else:
+            suggested = Path('Metrados.xlsx' if formulas else 'Metrados-valores.xlsx')
+        caption = ('Exportar desarrollo y resumen de metrados' if formulas
+                   else 'Exportar metrados (solo valores)')
+        filename, _ = QFileDialog.getSaveFileName(self, caption, str(suggested), 'Excel (*.xlsx)')
         if not filename:
             return False
         path = Path(filename)
@@ -1250,13 +1265,15 @@ class PlantillaWindow(QMainWindow):
         from metrado.excel_export import export_workbook
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
-            count, pending = export_workbook(path, self.title_edit.text(), self.model.rows, self._enlace)
+            count, pending = export_workbook(path, self.title_edit.text(), self.model.rows, self._enlace,
+                                            formulas=formulas)
         except (OSError, ValueError) as error:
             QMessageBox.warning(self, 'No se pudo exportar Excel', str(error))
             return False
         finally:
             QApplication.restoreOverrideCursor()
-        self.statusBar().showMessage(f'Excel exportado: {count} partidas · Desarrollo y Resumen · '
+        kind = 'fórmulas' if formulas else 'solo valores'
+        self.statusBar().showMessage(f'Excel exportado ({kind}): {count} partidas · Desarrollo y Resumen · '
                                     f'{pending} filas pendientes · {path}', 15000)
         return True
 

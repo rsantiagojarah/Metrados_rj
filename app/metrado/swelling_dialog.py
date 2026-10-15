@@ -16,9 +16,10 @@ class SwellingDialog(QDialog):
         config = config or {}
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel(f'{count} detalle(s) consecutivo(s) seleccionados · m³'))
+        layout.addWidget(QLabel('Mayor que 1 esponja. Entre 0 y 1 prorratea: 0,80 es el 80 %.'))
         form = QFormLayout()
         self.factor = NumericEdit(config.get('factor', ''), positive=True, validate=factor_number)
-        self.factor.setPlaceholderText('Por ejemplo: 1,20')
+        self.factor.setPlaceholderText('1,20 esponja · 0,80 prorratea')
         self.note = QLineEdit(config.get('note', ''))
         self.note.setMaxLength(1200)
         self.note.setPlaceholderText('Opcional; visible al pasar el cursor sobre FE')

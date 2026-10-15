@@ -55,6 +55,13 @@ def _number(text, default=None):
         return str(text)
 
 
+def display_round(value):
+    """Same two decimals the planilla paints with f'{value:.2f}'."""
+    if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(value):
+        return value
+    return float(format(value, '.2f'))
+
+
 def _literal(cell, value):
     if isinstance(value, str) and (len(value) > 32767 or ILLEGAL_CHARACTERS_RE.search(value)):
         raise ValueError('Hay un texto demasiado largo o con caracteres de control no admitidos por Excel. Revisa las descripciones.')
@@ -70,12 +77,13 @@ def _guard(expression, required, conditions=()):
 
 
 class ExcelReport:
-    def __init__(self, title, rows, engine):
+    def __init__(self, title, rows, engine, formulas=True):
         self.rows = materialize(rows, immutable_catalogs=True)
         upgrade_legacy(self.rows)
         refs.check_cycles(self.rows)
         self.values, self.errors = calculate(self.rows, engine)
         self.engine = engine
+        self.formulas = formulas
         self.title = title or 'Planilla de metrados'
         self.book = Workbook()
         self.book.remove(self.book.active)
@@ -138,6 +146,9 @@ class ExcelReport:
         sheet.row_dimensions[r].height = min(409, max(minimum, lines * 11 + 3))
 
     def _formula(self, sheet, address, expression, cached):
+        if not self.formulas:
+            _literal(sheet[address], display_round(cached))
+            return
         sheet[address] = '=' + expression
         self.caches[sheet.title][address] = cached
 
@@ -472,7 +483,7 @@ class ExcelReport:
         self._input(r, 10, config['factor'])
         a, b = self.positions[start], self.positions[end]
         quantity = f'K{a}:K{b}'
-        expr = f'IFERROR(IF(AND(COUNT({quantity})={b-a+1},ISNUMBER(J{r}),J{r}>=1),SUM({quantity})*J{r},"{PENDING}"),"{PENDING}")'
+        expr = f'IFERROR(IF(AND(COUNT({quantity})={b-a+1},ISNUMBER(J{r}),J{r}>0),SUM({quantity})*J{r},"{PENDING}"),"{PENDING}")'
         cached = self.values.get((end, 14), PENDING)
         self._formula(self.dev, f'K{r}', expr, cached)
         self._formula(self.dev, f'O{r}', f'K{r}', cached)
@@ -544,14 +555,17 @@ remains enabled; these caches make previews/data-only readers useful immediately
                 target.writestr(entry, data)
 
 
-def export_workbook(path, title, rows, engine):
+def export_workbook(path, title, rows, engine, formulas=True):
     """Atomic export; the destination is unchanged if construction or saving fails."""
-    report = ExcelReport(title, rows, engine)
+    report = ExcelReport(title, rows, engine, formulas=formulas)
     path, temporary = Path(path), None
     try:
         with tempfile.NamedTemporaryFile(dir=path.parent, prefix='.metrado-excel-', suffix='.tmp', delete=False) as stream:
             temporary = stream.name
-            _save_cached(report, stream)
+            if formulas:
+                _save_cached(report, stream)
+            else:
+                report.book.save(stream)
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temporary, path)

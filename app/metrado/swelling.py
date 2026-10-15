@@ -48,9 +48,9 @@ def factor_number(text):
     try:
         number = percent_number(text)
     except ValueError as error:
-        raise ValueError('Ingresa un FE numérico y finito, por ejemplo 1,20.') from error
-    if number < 1:
-        raise ValueError('El factor de esponjamiento debe ser mayor o igual a 1 (por ejemplo 1,20).')
+        raise ValueError('Ingresa un FE numérico y finito, por ejemplo 1,20 o 0,80.') from error
+    if number <= 0:
+        raise ValueError('El FE debe ser mayor que 0. Usa 1,20 para esponjar o 0,80 para prorratear.')
     return number
 
 
