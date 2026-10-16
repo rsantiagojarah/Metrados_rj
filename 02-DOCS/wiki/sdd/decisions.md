@@ -53,3 +53,10 @@ Repro: instrumentación de execFileSync registra 24 llamadas de captura/recupera
 Cause: el helper Git compartido omite windowsHide; el hashing en lote ya lo tenía. No se ha demostrado que este sea el único origen de las ventanas PowerShell reportadas.
 Fix: añadir windowsHide: true al helper. Prueba de regresión: falla antes y pasa después, con 27 lanzamientos ocultos solicitados y memoria funcional. La prueba de rendimiento también pasa (870–915 ms por evento).
 Why missed: redirigir stdout/stderr no equivale a solicitar que Windows oculte la consola. Pendiente confirmación visual del usuario; no se modificó el lanzador interno de Codex ni se desactivaron hooks.
+
+## 2026-10-15 — bug: instalador no ejecuta uv (feature: instalador-dependencias-autocad)
+
+Repro: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File installer\Instalar-Metrados.ps1` con uv ya instalado. Error: el término `uv: uv 0.11.6 ... C:\Users\rsant\.local\bin\uv.exe` no se reconoce. `installer\test-retorno-uv.ps1` devolvía 2 valores.
+Cause: `Install-Uv` imprime la versión con `Write-Output` y además hace `return` de la ruta. Quien asigna `$uv = Install-Uv` recibe ambos, y PowerShell intenta ejecutarlos como un solo programa.
+Fix: el mensaje sale con `Write-Host`, que no entra en el valor devuelto. La prueba pasa con `RETORNO_UV_OK` y el instalador termina con `ENLACE_OK`.
+Why missed: el mensaje y el `return` se probaron por separado al mirar la consola; el fallo solo aparece cuando la salida de la función se guarda en una variable.

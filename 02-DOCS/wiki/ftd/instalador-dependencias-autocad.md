@@ -15,7 +15,7 @@ El instalador es un script de preparación, no un segundo programa: Metrados sig
 
 - [x] Rechaza una ruta de AutoCAD que no existe; prueba: el script termina con error en español y el complemento ya instalado no cambia.
 - [x] Rechaza la instalación si AutoCAD o Metrados están abiertos; prueba: con esos procesos en marcha, el script termina con error y el complemento no cambia.
-- [ ] Con las aplicaciones cerradas, instala dependencias y el complemento; prueba: imprime `ENLACE_OK`, el SHA256 de la DLL compilada coincide con la de `%APPDATA%\Autodesk\ApplicationPlugins\Metrados.AutoCAD2021.bundle` y existen los dos accesos directos.
+- [x] Con las aplicaciones cerradas, instala dependencias y el complemento; prueba: imprime `ENLACE_OK`, el SHA256 de la DLL compilada coincide con la de `%APPDATA%\Autodesk\ApplicationPlugins\Metrados.AutoCAD2021.bundle` y existen los dos accesos directos.
 
 ## Evidence
 
@@ -27,6 +27,10 @@ El instalador es un script de preparación, no un segundo programa: Metrados sig
 
 La instalación completa no se ejecutó porque esas aplicaciones siguen abiertas.
 
+2026-10-15, reinstalación con AutoCAD y Metrados cerrados. `installer\Instalar-Metrados.ps1` terminó con código 0. Python 3.12.13, entorno `.venv` recreado, paquete `metrado` compilado de este repositorio. La comprobación imprimió `ENLACE_OK`. La DLL compilada y la instalada en `%APPDATA%\Autodesk\ApplicationPlugins\Metrados.AutoCAD2021.bundle` comparten SHA256 `3E4C63B6678E914EC54171A45CCE897CB267181F42522AF6547332738DA269CB`. Accesos directos: `C:\Users\rsant\Desktop\Metrados.lnk` y el del menú Inicio.
+
+El primer intento falló con uv ya instalado: `Install-Uv` devolvía el texto de la versión junto con la ruta. Quedó corregido en la rama `fix/instalador-retorno-uv`; la prueba `installer\test-retorno-uv.ps1` imprime `RETORNO_UV_OK`.
+
 ## Next
 
-Cerrar AutoCAD y Metrados, y ejecutar `installer\Instalar-Metrados.cmd`.
+Abrir Metrados con el acceso directo. En AutoCAD 2021, aceptar el complemento si lo pide y escribir `MTRCONEXION`.

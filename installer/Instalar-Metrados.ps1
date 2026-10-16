@@ -86,10 +86,11 @@ function Find-Uv {
 function Install-Uv {
     $existing = Find-Uv
     if ($existing) {
-        Write-Output "uv: $(& $existing --version)"
+        Write-Host "uv: $(& $existing --version)"
         return $existing
     }
-    Write-Step 'Instalando uv para el usuario actual'
+    Write-Host ''
+    Write-Host '== Instalando uv para el usuario actual =='
     Invoke-Expression (Invoke-RestMethod 'https://astral.sh/uv/install.ps1')
     Update-SessionPath
     $installed = Find-Uv
@@ -197,6 +198,7 @@ function Install-Shortcuts {
     New-LaunchShortcut (Join-Path $startMenu 'Metrados.lnk') $pythonw
 }
 
+if ($MyInvocation.InvocationName -ne '.') {
 try {
     Write-Step 'Comprobando AutoCAD 2021'
     Assert-AutoCadPresent -Directory $AutoCadDirectory
@@ -214,4 +216,5 @@ try {
 catch {
     Write-Output "ERROR: $($_.Exception.Message)"
     exit 1
+}
 }
