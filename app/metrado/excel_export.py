@@ -55,13 +55,6 @@ def _number(text, default=None):
         return str(text)
 
 
-def display_round(value):
-    """Same two decimals the planilla paints with f'{value:.2f}'."""
-    if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(value):
-        return value
-    return float(format(value, '.2f'))
-
-
 def _literal(cell, value):
     if isinstance(value, str) and (len(value) > 32767 or ILLEGAL_CHARACTERS_RE.search(value)):
         raise ValueError('Hay un texto demasiado largo o con caracteres de control no admitidos por Excel. Revisa las descripciones.')
@@ -147,7 +140,7 @@ class ExcelReport:
 
     def _formula(self, sheet, address, expression, cached):
         if not self.formulas:
-            _literal(sheet[address], display_round(cached))
+            _literal(sheet[address], cached)
             return
         sheet[address] = '=' + expression
         self.caches[sheet.title][address] = cached

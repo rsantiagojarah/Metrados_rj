@@ -246,10 +246,11 @@ class ExcelExportTests(unittest.TestCase):
                     self.assertFalse(isinstance(value, str) and value.startswith('='), value)
         report = ExcelReport('Obra', rows, engine, formulas=False)
         footer = report.footers[1]
-        self.assertEqual(book['Desarrollo'][f'K{footer}'].value, float(format(2915.28 * 0.8, '.2f')))
-        self.assertEqual(book['Desarrollo'][f'N{report.positions[0]}'].value, float(format(2915.28 * 0.8, '.2f')))
+        expected = 2915.28 * 0.8
+        self.assertEqual(book['Desarrollo'][f'K{footer}'].value, expected)
+        self.assertEqual(book['Desarrollo'][f'N{report.positions[0]}'].value, expected)
 
-    def test_values_export_matches_planilla_two_decimals(self):
+    def test_values_export_preserves_full_calculation_precision(self):
         rows = geometry('und', 1)
         rows[1]['direct'] = '343.2149'
         export_workbook(self.path, 'Obra', rows, engine, formulas=False)
@@ -259,8 +260,26 @@ class ExcelExportTests(unittest.TestCase):
         self.assertFalse(errors)
         raw = total[0, 13]
         self.assertEqual(f'{raw:.2f}', '343.21')
-        self.assertEqual(book['Desarrollo']['N12'].value, 343.21)
-        self.assertNotEqual(book['Desarrollo']['N12'].value, raw)
+        self.assertEqual(book['Desarrollo']['N12'].value, raw)
+        self.assertEqual(book['Resumen']['D12'].value, raw)
+
+    def test_values_export_preserves_full_steel_weight_precision(self):
+        rows = comprehensive_rows()
+        report = ExcelReport('Obra', rows, engine, formulas=False)
+        steel = report.positions[8]
+        export_workbook(self.path, 'Obra', rows, engine, formulas=False)
+        book = load_workbook(self.path)
+        self.books.append(book)
+
+        length = report.values[8, 8]
+        weight = report.values[8, 11]
+        total = report.values[8, 12]
+        self.assertEqual(book['Desarrollo'][f'I{steel}'].value, length)
+        self.assertEqual(book['Desarrollo'][f'K{steel}'].value, weight)
+        self.assertEqual(book['Desarrollo'][f'L{steel}'].value, total)
+        self.assertEqual(book['Desarrollo'][f'I{steel}'].value * book['Desarrollo'][f'K{steel}'].value,
+                         book['Desarrollo'][f'L{steel}'].value)
+        self.assertNotEqual(weight, float(format(weight, '.2f')))
 
     def test_multiple_fe_blocks_and_free_details_contribute_once(self):
         rows = geometry(count=5)
