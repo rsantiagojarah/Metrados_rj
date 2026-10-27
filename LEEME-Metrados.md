@@ -86,7 +86,7 @@ Para un área ya conocida (por ejemplo, 837,13 m2), selecciona el detalle y puls
 
 En una partida **m³**, también puedes escribir un área conocida directamente en la columna **Área**. Completa después exactamente una de las columnas **Largo**, **Ancho** o **Alto**; el volumen será `Área × dimensión × Elem. simil. × N.º de veces`. Esto permite usar áreas irregulares con un espesor o secciones variables con una longitud. La fila permanece pendiente si no tiene dimensión o si tiene más de una.
 
-Los resultados se muestran con dos decimales, pero el total usa la precisión del cálculo. Solo se suman detalles de la misma partida; no existe un total global que mezcle unidades.
+Los resultados se muestran con dos decimales mediante redondeo decimal comercial (0,005 se muestra como 0,01), igual que los reportes Excel. El total conserva la precisión del cálculo internamente; solo se redondea al mostrarlo. Solo se suman detalles de la misma partida; no existe un total global que mezcle unidades.
 
 **Sufijo automático, solo en los detalles de acero:** la descripción termina siempre con la cantidad y el diámetro, por ejemplo `VERTICAL INTERIOR 53 Ø1"`. Se actualiza al cambiar **N.º de veces**, **Diámetro** o la descripción, y se conserva al copiar, guardar y deshacer. Las anotaciones anteriores se reúnen en un único sufijo al final. La cantidad coincide con N.º de veces visible: incluye las repeticiones antiguas, pero no el factor Elem. simil. Renombrar el detalle no altera los factores. Puedes escribir una cantidad y diámetro nuevos en la descripción para actualizar esos campos. Si falta un dato, se muestra `?` hasta completarlo, por ejemplo `Nuevo detalle ? Ø?`. No se agrega a títulos, subtítulos, partidas, grupos internos ni detalles de otras unidades.
 
@@ -241,7 +241,7 @@ Si se abre Metrados después de AutoCAD, el complemento vuelve a intentar la con
 
 ### Exportar metrados a Excel
 
-**Archivo → Exportar metrados a Excel…** genera Desarrollo y Resumen con fórmulas: si cambias un largo en Excel, se recalculan totales, referencias y FE. **Archivo → Exportar metrados a Excel (solo valores)…** escribe los mismos números que ves en Metrados, ya redondeados a 2 decimales y sin fórmulas; Excel no los vuelve a calcular al abrir (un FE 0,80 no se convierte en Pendiente y un total 343,21 no pasa a 343,22). Ninguna de las dos modifica la base SQLite. Búscalas con «Excel» en **Ctrl+K**.
+**Archivo → Exportar metrados a Excel…** genera Desarrollo y Resumen con fórmulas: si cambias un largo en Excel, se recalculan totales, referencias y FE. **Archivo → Exportar metrados a Excel (solo valores)…** conserva los valores de cálculo sin fórmulas; ambos reportes se muestran con los mismos dos decimales y criterio de redondeo que Metrados. La exportación sin fórmulas no se vuelve a calcular al abrir. Ninguna de las dos modifica la base SQLite. Búscalas con «Excel» en **Ctrl+K**.
 
 ### Importar partidas desde Excel
 

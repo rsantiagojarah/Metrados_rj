@@ -7,6 +7,7 @@ from PySide6.QtGui import QColor, QFont, QPainter, QPen, QUndoStack
 from PySide6.QtWidgets import QApplication, QAbstractItemDelegate, QComboBox, QHeaderView, QStyleOptionViewItem, QStyledItemDelegate, QTableView
 
 from metrado.sheet import DIMENSIONS, UNITS, calculate, _calculate_plain
+from metrado.display import format_two_decimals
 from metrado.steel import (
     DIAMETERS, STEEL_LABELS, description_base, edit_description, header_mode,
     set_bar_diameter, sync_description,
@@ -137,7 +138,7 @@ class SheetModel(QAbstractTableModel):
         cells[8] = 'FE'
         cells[9] = factor_text(config)
         total = self.values.get((self._swelling_ends[owner], 14))
-        cells[10] = 'Pendiente' if total is None else f'{total:.2f}'
+        cells[10] = 'Pendiente' if total is None else format_two_decimals(total)
         return cells
 
     def set_swelling(self, selected, config):
@@ -281,14 +282,14 @@ class SheetModel(QAbstractTableModel):
                 return ""
             if c in (10, 11):
                 value = self.values.get((r, 11 if c == 10 else 12))
-                return "" if value is None else f"{value:.2f}"
+                return "" if value is None else format_two_decimals(value)
             if c in (4, 5, 6) and not row["direct"]:
                 try:
-                    return f"{float(row['cells'][c].replace(',', '.') or '0'):.2f}" if row["cells"][c] or c != 4 else ""
+                    return format_two_decimals(row['cells'][c]) if row["cells"][c] or c != 4 else ""
                 except ValueError:
                     return row["cells"][c]
         if value is not None:
-            return f"{value:.2f}"
+            return format_two_decimals(value)
         if c == 13 and r in self.errors and kind == "item":
             return "Pendiente"
         if c == 4 and row["direct"]:
@@ -310,7 +311,7 @@ class SheetModel(QAbstractTableModel):
             return row['cells'][c]
         if c == 4:
             value = self.values.get((r, 4))
-            return 'Pendiente' if value is None else f'{value:.2f}'
+            return 'Pendiente' if value is None else format_two_decimals(value)
         if c == 5:
             if source_unit == row['cells'][2]:
                 return ''
@@ -318,7 +319,7 @@ class SheetModel(QAbstractTableModel):
         result = {'m': 8, 'm2': 9, 'm3': 10, 'kg': 11}.get(row['cells'][2], 12)
         if c == result:
             value = self.values.get((r, 12 if row['cells'][2] == 'kg' else c))
-            return 'Pendiente' if value is None else f'{value:.2f}'
+            return 'Pendiente' if value is None else format_two_decimals(value)
         return ''
 
     def set_reference(self, index, source_id, name='', factor=''):

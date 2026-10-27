@@ -3,6 +3,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QDialog, QDialogButtonBox, QFormLayout, QLabel, QLineEdit, QVBoxLayout
 
 from metrado.swelling import adjusted_volume, factor_number
+from metrado.display import format_two_decimals
 from metrado.numeric_edit import NumericEdit
 
 
@@ -61,7 +62,8 @@ class SwellingDialog(QDialog):
             config = self.configuration()
             total = None if self.base is None else adjusted_volume(self.base, config, self.engine)
             self.preview.setText('Subtotal pendiente: completa los detalles.' if total is None else
-                                 f'{self.base:.2f} × {config["factor"]} = {total:.2f} m³')
+                                 f'{format_two_decimals(self.base)} × {config["factor"]} = '
+                                 f'{format_two_decimals(total)} m³')
             self.buttons.button(QDialogButtonBox.Ok).setEnabled(True)
         except (ValueError, OverflowError) as error:
             self.preview.setText(str(error))

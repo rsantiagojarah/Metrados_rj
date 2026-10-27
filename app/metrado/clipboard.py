@@ -8,6 +8,7 @@ from uuid import uuid4
 from PySide6.QtCore import QMimeData, Qt
 
 from metrado.hierarchy import MAX_ROWS, MEASUREMENT_KINDS, Outline, materialize, renumber
+from metrado.display import format_two_decimals
 from metrado.sheet import _calculate_plain, new_row, validate_project
 from metrado.swelling import factor_text, upgrade_legacy, volume_blocks
 from metrado.references import check_cycles
@@ -51,7 +52,7 @@ def encode_rows(model, selected):
         summary = [''] * 14
         summary[8:10] = ['FE', factor_text(block[start]['volume_factor'])]
         total = values.get((end + len(wrapper), 14))
-        summary[10] = 'Pendiente' if total is None else f'{total:.2f}'
+        summary[10] = 'Pendiente' if total is None else format_two_decimals(total)
         text.insert(end + 1, summary)
     mime = QMimeData()
     area_base = any(row['kind'] == 'detail' and row['cells'][2] == 'm3' and row['cells'][9].strip()

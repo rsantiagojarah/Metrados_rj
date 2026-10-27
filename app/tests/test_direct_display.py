@@ -10,7 +10,8 @@ from openpyxl import load_workbook
 import metrado._enlace as engine
 from metrado.grid import SheetModel
 from metrado.sheet import new_row
-from metrado.excel_export import export_workbook
+from metrado.excel_export import NUMBER_FORMAT, export_workbook
+from metrado.display import format_two_decimals
 
 
 class DirectDisplayTests(unittest.TestCase):
@@ -92,3 +93,30 @@ class DirectDisplayTests(unittest.TestCase):
                 self.assertIn('D13*H13*E13', sheet['I13'].value)
             finally:
                 book.close()
+
+    def test_planilla_y_reportes_comparten_el_redondeo_visible(self):
+        model = self.model('m3')
+        for column, value in ((4, '17.40'), (5, '13.15'), (6, '1.50')):
+            self.assertTrue(model.setData(model.index(1, column), value))
+
+        with tempfile.TemporaryDirectory() as folder:
+            formula_path = Path(folder) / 'coherente-formulas.xlsx'
+            values_path = Path(folder) / 'coherente-valores.xlsx'
+            export_workbook(formula_path, 'Coherente', model.rows, engine)
+            export_workbook(values_path, 'Coherente', model.rows, engine, formulas=False)
+            formula = load_workbook(formula_path)
+            cached = load_workbook(formula_path, data_only=True)
+            values = load_workbook(values_path)
+            try:
+                visible = model.data(model.index(0, 13))
+                self.assertEqual(visible, '343.22')
+                self.assertEqual(formula['Desarrollo']['N12'].number_format, NUMBER_FORMAT)
+                self.assertEqual(format_two_decimals(cached['Desarrollo']['N12'].value), visible)
+                self.assertEqual(format_two_decimals(cached['Resumen']['D12'].value), visible)
+                self.assertEqual(values['Desarrollo']['N12'].number_format, NUMBER_FORMAT)
+                self.assertEqual(format_two_decimals(values['Desarrollo']['N12'].value), visible)
+                self.assertEqual(format_two_decimals(values['Resumen']['D12'].value), visible)
+            finally:
+                formula.close()
+                cached.close()
+                values.close()

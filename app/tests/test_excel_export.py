@@ -12,6 +12,7 @@ from PySide6.QtCore import QCoreApplication, QEvent
 from PySide6.QtWidgets import QApplication, QToolBar, QMessageBox
 import metrado._enlace as engine
 from metrado.excel_export import ExcelReport, export_workbook, PENDING
+from metrado.display import format_two_decimals
 from metrado.identity import ensure_ids
 from metrado.references import make_reference
 from metrado.sheet import new_row, example_rows, steel_detail, calculate
@@ -259,7 +260,7 @@ class ExcelExportTests(unittest.TestCase):
         total, errors = calculate(rows, engine)
         self.assertFalse(errors)
         raw = total[0, 13]
-        self.assertEqual(f'{raw:.2f}', '343.21')
+        self.assertEqual(format_two_decimals(raw), '343.21')
         self.assertEqual(book['Desarrollo']['N12'].value, raw)
         self.assertEqual(book['Resumen']['D12'].value, raw)
 
