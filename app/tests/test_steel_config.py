@@ -39,6 +39,38 @@ def sample(managed=True):
 
 
 class SteelRulesTests(unittest.TestCase):
+    def test_quarter_inch_calculates_and_legacy_snapshot_is_preserved(self):
+        from metrado.steel_snapshot import freeze
+        catalog = sc.initial_catalog()
+        self.assertAlmostEqual(float(catalog['1/4"']['weight']), .2486, places=4)
+        old = deepcopy(catalog)
+        del old['1/4"']
+        old['1/2"']['weight'] = '1.234'
+        snapshot = freeze(old)
+        self.assertEqual(snapshot['1/2"']['weight'], '1.234')
+        self.assertEqual(snapshot['1/4"'], catalog['1/4"'])
+        rows = [new_row('item', description='Acero', unit='kg'),
+                steel_detail('Estribos', 1, .8, 0, 0, '1/4"', 16)]
+        values, errors = calculate(rows, engine)
+        self.assertFalse(errors)
+        self.assertAlmostEqual(values[(1, 12)], 16 * .8 * .2486, places=3)
+
+    def test_legacy_global_catalog_preserves_custom_values(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'steel.db'
+            store = CatalogStore(path)
+            catalog = sc.initial_catalog()
+            catalog['1/2"']['weight'] = '1.234'
+            store.save(catalog, None)
+            with closing(sqlite3.connect(path)) as conn, conn:
+                conn.execute('DELETE FROM steel WHERE diameter=?', ('1/4"',))
+            before = path.read_bytes()
+            restored, revision = store.read()
+            self.assertEqual(path.read_bytes(), before)
+            self.assertEqual(restored['1/2"']['weight'], '1.234')
+            self.assertEqual(restored['1/4"'], catalog['1/4"'])
+            self.assertEqual(revision, 1)
+
     def test_initial_reference_geometry_and_weights(self):
         catalog = sc.initial_catalog()
         sc.validate_catalog(catalog)
@@ -328,7 +360,7 @@ class SteelStorageTests(unittest.TestCase):
         self.assertEqual(calculate(loaded, engine), calculate(rows, engine))
         self.assertEqual(write_database(self.path, title, loaded, revision), revision)
         with closing(sqlite3.connect(self.path)) as connection:
-            self.assertEqual(connection.execute('SELECT count(*) FROM steel_catalog').fetchone()[0], 27)
+            self.assertEqual(connection.execute('SELECT count(*) FROM steel_catalog').fetchone()[0], 3 * len(sc.DIAMETERS))
             self.assertEqual(connection.execute('PRAGMA foreign_key_check').fetchall(), [])
             self.assertEqual(connection.execute('PRAGMA integrity_check').fetchone()[0], 'ok')
         loaded[1]['steel_hooks']['count'] = 2

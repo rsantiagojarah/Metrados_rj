@@ -3,8 +3,8 @@ from copy import deepcopy
 from decimal import Decimal, InvalidOperation, ROUND_CEILING
 import math
 
-DIAMETERS = ('6mm', '8mm', '3/8"', '12mm', '1/2"', '5/8"', '3/4"', '1"', '1 3/8"')
-MILLIMETERS = (6, 8, 9.525, 12, 12.7, 15.875, 19.05, 25.4, 34.925)
+DIAMETERS = ('6mm', '1/4"', '8mm', '3/8"', '12mm', '1/2"', '5/8"', '3/4"', '1"', '1 3/8"')
+MILLIMETERS = (6, 6.35, 8, 9.525, 12, 12.7, 15.875, 19.05, 25.4, 34.925)
 FIELDS = ('weight', 'hook', 'lap')
 REFERENCE = (
     "Referencias editables para metrado, no una verificación estructural. "
@@ -42,6 +42,13 @@ def initial_catalog():
                                 hook=f'{math.ceil(hook * 100) / 100:.2f}',
                                 lap=f'{math.ceil(1.3 * development * 100) / 100:.2f}')
     return result
+
+
+def expand_legacy_catalog(catalog):
+    """Add the new diameter only to a complete pre-1/4-inch catalog."""
+    if isinstance(catalog, dict) and set(catalog) == set(DIAMETERS) - {'1/4"'}:
+        return {**catalog, '1/4"': initial_catalog()['1/4"']}
+    return catalog
 
 
 def validate_catalog(catalog):

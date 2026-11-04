@@ -42,6 +42,8 @@ def _snapshot(values):
 def freeze(catalog):
     if isinstance(catalog, CatalogSnapshot):
         return catalog
+    from metrado.steel_config import expand_legacy_catalog
+    catalog = expand_legacy_catalog(catalog)
     if not isinstance(catalog, dict) or set(catalog) != set(DIAMETERS):
         raise ValueError('La tabla debe contener todos los diámetros de acero.')
     values = []

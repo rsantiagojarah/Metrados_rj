@@ -216,6 +216,7 @@ class SheetModel(QAbstractTableModel):
                 return False
             return column in (1, 3, 4, 5, 6, 7, 9)
         return (column in (1, 3, 7) or
+                (unit == 'und' and column in (4, 5, 6)) or
                 (unit == 'm3' and column == 9) or
                 column in [c for c, _ in DIMENSIONS.get(unit, ())])
 

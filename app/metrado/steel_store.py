@@ -6,7 +6,7 @@ import sqlite3
 from PySide6.QtCore import QStandardPaths
 
 from metrado.database import ConflictError, _write_target
-from metrado.steel_config import DIAMETERS, FIELDS, initial_catalog, validate_catalog
+from metrado.steel_config import DIAMETERS, FIELDS, expand_legacy_catalog, initial_catalog, validate_catalog
 from metrado.steel_distribution import DEFAULT_TEMPLATE, validate_template
 
 APPLICATION_ID = 0x5354454C
@@ -28,6 +28,7 @@ class CatalogStore:
         revision = connection.execute('SELECT revision FROM settings WHERE id=1').fetchone()[0]
         catalog = {dia: dict(zip(FIELDS, values)) for dia, *values in
                    connection.execute('SELECT diameter, weight, hook, lap FROM steel')}
+        catalog = expand_legacy_catalog(catalog)
         validate_catalog(catalog)
         return catalog, revision
 

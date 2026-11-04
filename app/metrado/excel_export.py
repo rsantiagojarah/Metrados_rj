@@ -402,6 +402,11 @@ class ExcelReport:
             conditions.extend([f'COUNT(E{r}:G{r})=2', f'COUNTA(E{r}:G{r})=2',
                                f'COUNTIF(E{r}:G{r},">0")=2'])
             terms.append(f'PRODUCT(E{r}:G{r})')
+        elif unit == 'und' and any(cells[c].strip() for c in (4, 5, 6)):
+            for c in range(5, 8):
+                self._input(r, c, cells[c - 1])
+                address = f'{letter(c)}{r}'
+                required.append(address); conditions.append(f'{address}>0'); terms.append(address)
         else:
             for c in range(5, 5 + {'m': 1, 'm3': 3}.get(unit, 0)):
                 self._input(r, c, cells[c - 1])

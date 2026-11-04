@@ -1,6 +1,7 @@
 """Sheet data and validation. Rust computes quantities; steel rules provide inputs."""
 from copy import deepcopy
 import json
+import math
 import os
 from pathlib import Path
 import tempfile
@@ -208,6 +209,12 @@ def _calculate_plain(rows, engine, sources=None):
                 dimensions = list(zip(('largo', 'ancho'), measures))
                 quantity = engine.ask_sheet_quantity(
                     unit, dimensions, number(cells[3]), number(cells[7]), None)
+            elif unit == 'und' and any(cells[column].strip() for column in (4, 5, 6)):
+                measures = [number(cells[column]) for column in (4, 5, 6)]
+                if any(value <= 0 for value in measures):
+                    raise ValueError('unit_dimensions')
+                quantity = engine.ask_sheet_quantity(
+                    unit, [], number(cells[3]), number(cells[7]), math.prod(measures))
             else:
                 dimensions = [
                     (name, number(cells[column])) for column, name in DIMENSIONS.get(unit, ())]
