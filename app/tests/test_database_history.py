@@ -379,7 +379,7 @@ class HistoryWindowTests(unittest.TestCase):
         self.assertEqual(len(self.model.rows), len(before) - 4)
         self.stack.undo()
         self.assertEqual(self.model.rows, before)
-        self.assertAlmostEqual(self.model.values[(1, 13)], 42.5226)
+        self.assertAlmostEqual(self.model.values[(1, 13)], 42.52)
         self.stack.redo()
         self.assertEqual(len(self.model.rows), len(before) - 4)
 

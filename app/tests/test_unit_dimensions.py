@@ -23,7 +23,7 @@ class UnitDimensionsTests(unittest.TestCase):
         values, errors = calculate(rows, engine)
         self.assertFalse(errors)
         self.assertEqual(values[(1, 12)], 6)
-        self.assertAlmostEqual(values[(2, 12)], 127.413)
+        self.assertAlmostEqual(values[(2, 12)], 127.41)
         rows[2]['cells'][6] = ''
         self.assertIn(2, calculate(rows, engine)[1])
 
@@ -38,14 +38,14 @@ class UnitDimensionsTests(unittest.TestCase):
             database = Path(folder) / 'losa.db'
             write_database(database, 'Losa', model.rows)
             restored = read_database(database)[1]
-            self.assertAlmostEqual(calculate(restored, engine)[0][(1, 12)], 127.413)
+            self.assertAlmostEqual(calculate(restored, engine)[0][(1, 12)], 127.41)
             path = Path(folder) / 'losa.xlsx'
             export_workbook(path, 'Losa', restored, engine)
             formulas = load_workbook(path)
             values = load_workbook(path, data_only=True)
             try:
-                self.assertIn('D13*H13*E13*F13*G13', formulas['Desarrollo']['M13'].value)
-                self.assertAlmostEqual(values['Desarrollo']['M13'].value, 127.413)
+                self.assertIn('ROUND(D13,2)*ROUND(H13,2)*ROUND(E13,2)*ROUND(F13,2)*ROUND(G13,2)', formulas['Desarrollo']['M13'].value)
+                self.assertAlmostEqual(values['Desarrollo']['M13'].value, 127.41)
             finally:
                 formulas.close()
                 values.close()

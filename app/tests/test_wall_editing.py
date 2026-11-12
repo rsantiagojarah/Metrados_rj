@@ -123,7 +123,7 @@ class WallEditingTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'cortado'):
             generate_wall_rows(self.wall, 10, 2)
 
-    def test_concrete_formwork_round_to_two_decimals_without_rounding_steel(self):
+    def test_generated_dimensions_and_results_follow_two_decimal_policy(self):
         wall = default_wall_type()
         wall.bottom_thickness = 1.0
         generated = apply_wall(self.rows, wall, 2.675, 8, self.dest, 'Redondeo')
@@ -134,13 +134,16 @@ class WallEditingTests(unittest.TestCase):
         self.assertEqual(concrete['cells'][4:7], ['2.68', '0.75', '8.00'])
         values, errors = calculate(generated, engine)
         self.assertEqual(errors, {})
-        self.assertAlmostEqual(values[(generated.index(formwork), RESULT_COLUMN['m2'])], 2.68 * 8.02)
+        self.assertEqual(values[(generated.index(formwork), RESULT_COLUMN['m2'])], 21.49)
         self.assertAlmostEqual(values[(generated.index(concrete), RESULT_COLUMN['m3'])], 16.08)
-        original_steel = [row[1]['cells'][3:] for row in generate_wall_rows(wall, 2.675, 8) if row[0] == 'kg']
+        from metrado.precision import normalize_rows
+        original_rows = [row[1] for row in generate_wall_rows(wall, 2.675, 8) if row[0] == 'kg']
+        normalize_rows(original_rows)
+        original_steel = [row['cells'][3:] for row in original_rows]
         sheet_steel = [r['cells'][3:] for r in generated if r['kind'] == 'detail' and r['cells'][2] == 'kg']
         self.assertEqual(sheet_steel, original_steel)
         config = formwork['wall_generated']
-        self.assertEqual(config['length'], 2.675)
+        self.assertEqual(config['length'], 2.68)
         updated = apply_wall(generated, wall, 10.005, 8, self.dest, 'Redondeo', config['instance_id'])
         updated_formwork = next(r for r in updated if r['id'] == formwork['id'])
         self.assertEqual(updated_formwork['cells'][4:6], ['10.01', '8.02'])

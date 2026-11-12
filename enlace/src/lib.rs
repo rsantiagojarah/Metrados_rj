@@ -66,11 +66,23 @@ fn ask_sheet_total(quantities: Vec<f64>) -> PyResult<f64> {
     metrado_calculo::sheet_total(&quantities).map_err(to_py)
 }
 
+#[pyfunction]
+fn ask_sheet_round(value: f64) -> PyResult<f64> {
+    metrado_calculo::round_quantity(value).map_err(to_py)
+}
+
+#[pyfunction]
+fn ask_sheet_product(values: Vec<f64>) -> PyResult<f64> {
+    metrado_calculo::product(&values).map_err(to_py)
+}
+
 #[pymodule]
 fn _enlace(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(ask_quantity, module)?)?;
     module.add_function(wrap_pyfunction!(ask_sheet_quantity, module)?)?;
     module.add_function(wrap_pyfunction!(ask_sheet_steel, module)?)?;
     module.add_function(wrap_pyfunction!(ask_sheet_total, module)?)?;
+    module.add_function(wrap_pyfunction!(ask_sheet_round, module)?)?;
+    module.add_function(wrap_pyfunction!(ask_sheet_product, module)?)?;
     Ok(())
 }

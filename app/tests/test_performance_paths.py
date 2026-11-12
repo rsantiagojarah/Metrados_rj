@@ -90,8 +90,9 @@ class IncrementalCalculationTests(unittest.TestCase):
     def test_chain_recalculates_affected_items_once(self):
         self.engine.calls = 0
         self.model.setData(self.model.index(1, 4), '5')
-        # 28 ordinary rows + two reference rows with three checked products each.
-        self.assertEqual(self.engine.calls, 34)
+        # 28 ordinary rows + one factor validation per referenced detail.
+        # The reference's complete product now has its own decimal engine call.
+        self.assertEqual(self.engine.calls, 30)
         self.equivalent()
         self.model.undo_stack.undo()
         self.equivalent()
@@ -194,7 +195,7 @@ class SnapshotTests(unittest.TestCase):
             self.assertEqual(calculate(read_project(json_path)[1], engine), calculate(rows, engine))
             with closing(sqlite3.connect(db)) as con:
                 self.assertEqual(con.execute('PRAGMA user_version').fetchone()[0], SCHEMA_VERSION)
-                self.assertEqual(con.execute('SELECT count(*) FROM steel_catalog').fetchone()[0], 54)
+                self.assertEqual(con.execute('SELECT count(*) FROM steel_catalog').fetchone()[0], 6 * len(sc.DIAMETERS))
 
 
 class FastSelectionTests(unittest.TestCase):

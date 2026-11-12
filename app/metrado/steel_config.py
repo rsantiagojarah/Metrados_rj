@@ -2,6 +2,7 @@
 from copy import deepcopy
 from decimal import Decimal, InvalidOperation, ROUND_CEILING
 import math
+from metrado.precision import input_text
 
 DIAMETERS = ('6mm', '1/4"', '8mm', '3/8"', '12mm', '1/2"', '5/8"', '3/4"', '1"', '1 3/8"')
 MILLIMETERS = (6, 6.35, 8, 9.525, 12, 12.7, 15.875, 19.05, 25.4, 34.925)
@@ -116,13 +117,13 @@ def dimensions(row):
     """Per-bar hooks and laps; exact multiples do not introduce an extra splice."""
     config = row['steel_hooks']
     entry = row['steel_catalog'][row['cells'][7]]
-    hook = number(config['override'] or entry['hook']) * config['count']
+    hook = number(input_text(config['override'] or entry['hook'])) * config['count']
     base = number(row['cells'][4]) + hook
     if config.get('laps', True) is False:
         count = 0
     else:
         count = max(0, int((base / Decimal(9)).to_integral_value(rounding=ROUND_CEILING)) - 1)
-    return hook, number(entry['lap']) * count, count
+    return hook, number(input_text(entry['lap'])) * count, count
 
 
 def sync_dimensions(row):

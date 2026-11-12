@@ -1,13 +1,17 @@
-"""Sheet data and validation. Rust computes quantities; steel rules provide inputs."""
+"""Sheet data and validation. Rust computes quantities; steel rules provide inputs.
+
+Calculation dispatch and legacy validation share the 14-column document contract;
+keeping them here avoids a second mapping while arithmetic stays in Rust.
+"""
 from copy import deepcopy
 import json
-import math
 import os
 from pathlib import Path
 import tempfile
 
 from metrado.hierarchy import Outline
 from metrado import references as refs
+from metrado.precision import calculation_rows, normalize_rows
 from metrado.steel_config import dimensions as steel_dimensions, validate_row as validate_steel, sync_dimensions
 from metrado.swelling import adjusted_volume, validate_swelling, volume_blocks, upgrade_legacy
 
@@ -108,6 +112,7 @@ def calculate(rows, engine):
 
 
 def _calculate_plain(rows, engine, sources=None):
+    rows = calculation_rows(rows)
     values, errors = {}, {}
     current, quantities, invalid = None, [], False
 
@@ -167,7 +172,7 @@ def _calculate_plain(rows, engine, sources=None):
                     raise ValueError('area_dimension')
                 quantity = engine.ask_sheet_quantity(
                     unit, [], number(cells[3]), number(cells[7]),
-                    base_area * complements[0][1])
+                    engine.ask_sheet_product([base_area, complements[0][1]]))
             elif row["direct"].strip():
                 if unit == "kg":
                     values[(index, 7)] = number(cells[9])
@@ -214,12 +219,13 @@ def _calculate_plain(rows, engine, sources=None):
                 if any(value <= 0 for value in measures):
                     raise ValueError('unit_dimensions')
                 quantity = engine.ask_sheet_quantity(
-                    unit, [], number(cells[3]), number(cells[7]), math.prod(measures))
+                    unit, [], number(cells[3]), number(cells[7]), engine.ask_sheet_product(measures))
             else:
                 dimensions = [
                     (name, number(cells[column])) for column, name in DIMENSIONS.get(unit, ())]
                 quantity = engine.ask_sheet_quantity(
                     unit, dimensions, number(cells[3]), number(cells[7]), None)
+            quantity = engine.ask_sheet_round(quantity)
             values[(index, RESULT_COLUMN[unit])] = quantity
             quantities.append(quantity)
         except (ValueError, KeyError, OverflowError) as error:
@@ -354,6 +360,7 @@ def validate_project(data):
                     if not (area > 0 and area < float('inf')) or row['direct'] or 'reference' in row:
                         raise ValueError('Área base inválida.')
         clear_results(cells, current or cells[2], preserve_m3_area=data['version'] >= 8)
+    normalize_rows(data['rows'])
     Outline(data['rows'], strict=True)
     if any('reference' in row for row in data['rows']):
         from metrado.identity import ensure_ids

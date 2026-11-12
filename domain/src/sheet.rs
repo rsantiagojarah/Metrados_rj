@@ -17,15 +17,15 @@ pub fn sheet_quantity(
         "kg" | "und" | "mes" | "vje" | "glb" | "dia" => None,
         _ => return Err(DomainError::UnknownUnit),
     };
-    let base = if let Some(value) = direct {
+    let mut terms = vec![similar, repetitions];
+    if let Some(value) = direct {
         if !dimensions.is_empty() {
             return Err(DomainError::UnexpectedDimension);
         }
-        Dimension::try_new("cantidad", value)?.measure()
+        terms.push(Dimension::try_new("cantidad", value)?.measure());
     } else if let Some(unit) = geometric {
-        Partida::try_new("detalle", unit, dimensions)?
-            .quantity()
-            .value()
+        Partida::try_new("detalle", unit, dimensions.clone())?;
+        terms.extend(dimensions.iter().map(Dimension::measure));
     } else {
         if !dimensions.is_empty() {
             return Err(DomainError::UnexpectedDimension);
@@ -33,9 +33,8 @@ pub fn sheet_quantity(
         if unit == "kg" {
             return Err(DomainError::MissingDimension);
         }
-        1.0
-    };
-    let result = base * similar * repetitions;
+    }
+    let result = crate::decimal::product(&terms)?;
     if !result.is_finite() || result == 0.0 {
         return Err(DomainError::NonPositiveMeasure);
     }
@@ -44,17 +43,7 @@ pub fn sheet_quantity(
 
 /// Only quantities from one partida (and therefore one unit) may be summed.
 pub fn sheet_total(quantities: &[f64]) -> Result<f64, DomainError> {
-    let mut total = 0.0;
-    for value in quantities {
-        if !value.is_finite() {
-            return Err(DomainError::NonPositiveMeasure);
-        }
-        total += value;
-        if !total.is_finite() {
-            return Err(DomainError::NonPositiveMeasure);
-        }
-    }
-    Ok(total)
+    crate::decimal::rounded_total(quantities)
 }
 
 #[cfg(test)]

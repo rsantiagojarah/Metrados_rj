@@ -3,6 +3,8 @@
 Visible A:N follows the planilla; hidden O:AA holds contribution bookkeeping and
 historical steel snapshots. Totals sum O, so FE members are never counted twice.
 Formula caches come from the application's engine, not rounded display strings.
+Layout and formula emission share row positions and hidden contribution columns;
+splitting them would duplicate that mapping, so the report stays in one module.
 """
 from datetime import datetime
 import math
@@ -28,12 +30,14 @@ from metrado.sheet import calculate, RESULT_COLUMN
 from metrado.steel import description_base
 from metrado.steel_config import DIAMETERS, dimensions
 from metrado.swelling import volume_blocks, upgrade_legacy
+from metrado.precision import input_text, normalize_rows
 
 PENDING = 'Pendiente'
 NS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'
 NUMBER_FORMAT = '#,##0.00;[Red]-#,##0.00;0.00'
 INPUT_FORMAT = NUMBER_FORMAT
 COUNT_FORMAT = 'General'
+COEFFICIENT_FORMAT = '0.###############'
 FONT = 'Arial Narrow'
 BODY_SIZE = 8
 FIRST_ROW = 12
@@ -72,6 +76,7 @@ def _guard(expression, required, conditions=()):
 class ExcelReport:
     def __init__(self, title, rows, engine, formulas=True):
         self.rows = materialize(rows, immutable_catalogs=True)
+        normalize_rows(self.rows)
         upgrade_legacy(self.rows)
         refs.check_cycles(self.rows)
         self.values, self.errors = calculate(self.rows, engine)
@@ -277,7 +282,7 @@ class ExcelReport:
         if key not in self.catalogs:
             start = self.catalog_cursor
             for d, entry in catalog.items():
-                for c, value in zip(range(24, 28), (d, *(_number(entry[f]) for f in ('weight', 'hook', 'lap')))):
+                for c, value in zip(range(24, 28), (d, *(_number(entry[f] if f == 'weight' else input_text(entry[f])) for f in ('weight', 'hook', 'lap')))):
                     _literal(self.dev.cell(self.catalog_cursor, c), value)
                     self.dev.cell(self.catalog_cursor, c).font = self.input_font
                 self.catalog_cursor += 1
@@ -341,7 +346,7 @@ class ExcelReport:
                 expression = '0'
             else:
                 contribution = f'O{r + 1}:O{end}'
-                expression = f'IFERROR(IF(COUNT({contribution})={end-r},SUM({contribution}),"{PENDING}"),"{PENDING}")'
+                expression = f'IFERROR(IF(COUNT({contribution})={end-r},ROUND(SUM({contribution}),2),"{PENDING}"),"{PENDING}")'
             self._formula(self.dev, f'N{r}', expression, self.values.get((i, 13), PENDING))
             self.dev[f'N{r}'].font = self.bold_font
         if not self.rows:
@@ -359,7 +364,9 @@ class ExcelReport:
             return
         times = cells[9] if unit == 'kg' and 'reference' not in row else cells[7]
         self._input(r, 8, times, count=True)
-        required, conditions, terms = [f'D{r}', f'H{r}'], [f'D{r}<>0', f'H{r}<>0'], [f'D{r}', f'H{r}']
+        required = [f'D{r}', f'H{r}']
+        conditions = [f'ROUND(D{r},2)<>0', f'ROUND(H{r},2)<>0']
+        terms = [f'ROUND(D{r},2)', f'ROUND(H{r},2)']
         if 'reference' in row:
             ref = row['reference']
             source = self.sources.get(ref['source'])
@@ -369,6 +376,7 @@ class ExcelReport:
             required.append(f'E{r}'); terms.append(f'E{r}')
             if (source['cells'][2] if source else ref['source_unit']) != unit:
                 self._input(r, 6, ref['factor'])
+                self.dev[f'F{r}'].number_format = COEFFICIENT_FORMAT
                 required.append(f'F{r}'); conditions.append(f'F{r}>0'); terms.append(f'F{r}')
                 label = refs.description(row, self.sources).rsplit(' · ', 1)[0]
                 _literal(self.dev[f'P{r}'], label + ' · ' + ref['factor_name'] + ': ')
@@ -384,13 +392,13 @@ class ExcelReport:
             self._input(r, 10, cells[9])
             required.append(f'J{r}'); conditions.extend([
                 f'J{r}>0', f'COUNT(E{r}:G{r})=1', f'SUM(E{r}:G{r})>0'])
-            terms.extend([f'J{r}', f'SUM(E{r}:G{r})'])
+            terms.extend([f'ROUND(J{r},2)', f'(ROUND(E{r},2)+ROUND(F{r},2)+ROUND(G{r},2))'])
         elif row['direct'].strip():
             labeled = unit in ('m2', 'm3')
             value_column, label_column = (6, 'E') if labeled else (5, 'F')
             self._input(r, value_column, row['direct'])
             address = f'{letter(value_column)}{r}'
-            required.append(address); conditions.append(f'{address}>0'); terms.append(address)
+            required.append(address); conditions.append(f'ROUND({address},2)>0'); terms.append(f'ROUND({address},2)')
             label = {'m': 'LONGITUD', 'm2': 'ÁREA', 'm3': 'VOLUMEN'}.get(unit, 'DIRECTO')
             _literal(self.dev[f'{label_column}{r}'], label)
             self.dev[f'{label_column}{r}'].font = Font(name=FONT, size=8, italic=True, color='000000')
@@ -401,22 +409,22 @@ class ExcelReport:
                 self._input(r, c, cells[c - 1])
             conditions.extend([f'COUNT(E{r}:G{r})=2', f'COUNTA(E{r}:G{r})=2',
                                f'COUNTIF(E{r}:G{r},">0")=2'])
-            terms.append(f'PRODUCT(E{r}:G{r})')
+            terms.append('PRODUCT(' + ','.join(f'IF({c}{r}="",1,ROUND({c}{r},2))' for c in 'EFG') + ')')
         elif unit == 'und' and any(cells[c].strip() for c in (4, 5, 6)):
             for c in range(5, 8):
                 self._input(r, c, cells[c - 1])
                 address = f'{letter(c)}{r}'
-                required.append(address); conditions.append(f'{address}>0'); terms.append(address)
+                required.append(address); conditions.append(f'ROUND({address},2)>0'); terms.append(f'ROUND({address},2)')
         else:
             for c in range(5, 5 + {'m': 1, 'm3': 3}.get(unit, 0)):
                 self._input(r, c, cells[c - 1])
                 address = f'{letter(c)}{r}'
-                required.append(address); conditions.append(f'{address}>0'); terms.append(address)
+                required.append(address); conditions.append(f'ROUND({address},2)>0'); terms.append(f'ROUND({address},2)')
         col = 'L' if unit == 'kg' else letter(RESULT_COLUMN[unit] + 1)
         expression = '*'.join(terms)
         if 'reference' not in row:
             conditions.append(f'{expression}<>0')
-        self._formula(self.dev, f'{col}{r}', _guard(expression, required, conditions), self.values.get((i, RESULT_COLUMN[unit]), PENDING))
+        self._formula(self.dev, f'{col}{r}', _guard(f'ROUND({expression},2)', required, conditions), self.values.get((i, RESULT_COLUMN[unit]), PENDING))
 
     def _steel(self, i, r, row):
         cells = row['cells']
@@ -431,7 +439,7 @@ class ExcelReport:
         weight = f'INDEX($Y${start}:$Y${end},{match})'
         entry = catalog.get(cells[7], {})
         self._formula(self.dev, f'K{r}', f'IFERROR({weight},"{PENDING}")', self.values.get((i, 11), _number(entry.get('weight', ''), PENDING)))
-        self.dev[f'K{r}'].number_format = '0.00'
+        self.dev[f'K{r}'].number_format = COEFFICIENT_FORMAT
         validation = DataValidation(type='list', formula1=f'$X${start}:$X${end}', allow_blank=True)
         validation.errorTitle, validation.error = 'Diámetro', 'Elige un diámetro de la lista.'
         validation.showErrorMessage = True
@@ -439,22 +447,22 @@ class ExcelReport:
         if 'steel_hooks' in row:
             config = row['steel_hooks']
             self._input(r, 17, config['count'], count=True)
-            self._input(r, 18, config['override'])
+            self._input(r, 18, input_text(config['override']) if config['override'] else config['override'])
             self._input(r, 21, 0 if config.get('laps', True) is False else 1, count=True)
-            self._formula(self.dev, f'S{r}', f'IFERROR(INDEX($AA${start}:$AA${end},{match}),"{PENDING}")', _number(entry.get('lap', ''), PENDING))
-            self._formula(self.dev, f'T{r}', f'IFERROR(INDEX($Z${start}:$Z${end},{match}),"{PENDING}")', _number(entry.get('hook', ''), PENDING))
+            self._formula(self.dev, f'S{r}', f'IFERROR(INDEX($AA${start}:$AA${end},{match}),"{PENDING}")', _number(input_text(entry.get('lap', '')), PENDING))
+            self._formula(self.dev, f'T{r}', f'IFERROR(INDEX($Z${start}:$Z${end},{match}),"{PENDING}")', _number(input_text(entry.get('hook', '')), PENDING))
             try:
                 hook, lap, _ = dimensions(row)
                 hook, lap = float(hook), float(lap)
             except (ValueError, KeyError):
                 hook = lap = PENDING
-            chosen = f'IF(R{r}="",T{r},R{r})'
+            chosen = f'ROUND(IF(R{r}="",T{r},R{r}),2)'
             hook_expression = _guard(f'Q{r}*{chosen}', [f'Q{r}'],
                                      [f'OR(Q{r}=0,Q{r}=1,Q{r}=2)', f'ISNUMBER({chosen})', f'{chosen}>0'])
             self._formula(self.dev, f'F{r}', hook_expression, hook)
             # ROUND removes binary noise at exact 9 m boundaries; no lap feeds back into itself.
             # U = 0 keeps a length that already includes splices from gaining another one.
-            lap_expression = f'IF(U{r}=0,0,MAX(0,ROUNDUP(ROUND((E{r}+F{r})/9,12),0)-1)*S{r})'
+            lap_expression = f'IF(U{r}=0,0,MAX(0,ROUNDUP(ROUND((ROUND(E{r},2)+F{r})/9,12),0)-1)*S{r})'
             self._formula(self.dev, f'G{r}', _guard(lap_expression, [f'E{r}', f'F{r}', f'S{r}'],
                                                    [f'E{r}>0', f'F{r}>=0', f'S{r}>0']), lap)
         else:
@@ -462,9 +470,9 @@ class ExcelReport:
             self._input(r, 7, cells[6] or '0')
         required = [f'{c}{r}' for c in 'DEFGH']
         conditions = [f'D{r}<>0', f'E{r}>0', f'F{r}>=0', f'G{r}>=0', f'H{r}<>0']
-        expr = f'D{r}*(E{r}+F{r}+G{r})*H{r}'
+        expr = f'ROUND(D{r},2)*(ROUND(E{r},2)+ROUND(F{r},2)+ROUND(G{r},2))*ROUND(H{r},2)'
         self._formula(self.dev, f'I{r}', _guard(expr, required, conditions), self.values.get((i, 8), PENDING))
-        self._formula(self.dev, f'L{r}', _guard(f'I{r}*K{r}', [f'I{r}', f'K{r}'], [f'K{r}>0', f'I{r}<>0']), self.values.get((i, 12), PENDING))
+        self._formula(self.dev, f'L{r}', _guard(f'ROUND(I{r}*K{r},2)', [f'I{r}', f'K{r}'], [f'K{r}>0', f'I{r}<>0']), self.values.get((i, 12), PENDING))
         _literal(self.dev[f'P{r}'], description_base(cells[1]))
         desc = f'{description_base(cells[1])} {effective:g} Ø{cells[7]}' if effective is not None else cells[1]
         self._formula(self.dev, f'B{r}', f'P{r}&" "&TEXT(H{r},"General")&" Ø"&J{r}', desc)
@@ -479,9 +487,10 @@ class ExcelReport:
         _literal(self.dev[f'C{r}'], 'm3')
         _literal(self.dev[f'I{r}'], 'FE')
         self._input(r, 10, config['factor'])
+        self.dev[f'J{r}'].number_format = COEFFICIENT_FORMAT
         a, b = self.positions[start], self.positions[end]
         quantity = f'K{a}:K{b}'
-        expr = f'IFERROR(IF(AND(COUNT({quantity})={b-a+1},ISNUMBER(J{r}),J{r}>0),SUM({quantity})*J{r},"{PENDING}"),"{PENDING}")'
+        expr = f'IFERROR(IF(AND(COUNT({quantity})={b-a+1},ISNUMBER(J{r}),J{r}>0),ROUND(SUM({quantity})*J{r},2),"{PENDING}"),"{PENDING}")'
         cached = self.values.get((end, 14), PENDING)
         self._formula(self.dev, f'K{r}', expr, cached)
         self._formula(self.dev, f'O{r}', f'K{r}', cached)

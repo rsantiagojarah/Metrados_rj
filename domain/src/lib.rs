@@ -1,3 +1,4 @@
+mod decimal;
 mod dimension;
 mod error;
 mod partida;
@@ -6,6 +7,7 @@ mod sheet;
 mod steel;
 mod unit;
 
+pub use decimal::{product, round_quantity};
 pub use dimension::Dimension;
 pub use error::DomainError;
 pub use partida::Partida;

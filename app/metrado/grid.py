@@ -1,4 +1,8 @@
-"""Editable desktop grid with the reference sheet's two-level header."""
+"""Editable desktop grid with the reference sheet's two-level header.
+
+The Qt model, delegate and view remain together to share column/role contracts;
+splitting by widget class would duplicate their steel and reference mappings.
+"""
 from copy import deepcopy
 from uuid import uuid4
 
@@ -8,6 +12,7 @@ from PySide6.QtWidgets import QApplication, QAbstractItemDelegate, QComboBox, QH
 
 from metrado.sheet import DIMENSIONS, UNITS, calculate, _calculate_plain
 from metrado.display import format_two_decimals
+from metrado.precision import coefficient_text, input_text, normalize_rows
 from metrado.steel import (
     DIAMETERS, STEEL_LABELS, description_base, edit_description, header_mode,
     set_bar_diameter, sync_description,
@@ -58,6 +63,7 @@ class SheetModel(QAbstractTableModel):
     def __init__(self, engine, rows):
         super().__init__()
         ensure_ids(rows)
+        normalize_rows(rows)
         upgrade_legacy(rows)
         freeze_rows(rows)
         for row in rows:
@@ -272,7 +278,7 @@ class SheetModel(QAbstractTableModel):
                     return row["cells"][9] if row["direct"] else row["cells"][10]
                 return f"{times:g}"
         if kind == 'detail' and row['direct'] and row['cells'][2] in ('m2', 'm3') and c == 5:
-            return row['direct']
+            return row['direct'] if role == EDIT_ROLE else format_two_decimals(row['direct'])
         if role == EDIT_ROLE:
             if kind == 'detail' and row['cells'][2] == 'm3' and c == 9:
                 return row['cells'][9]
@@ -283,6 +289,8 @@ class SheetModel(QAbstractTableModel):
                 return ""
             if c in (10, 11):
                 value = self.values.get((r, 11 if c == 10 else 12))
+                if c == 10 and value is not None:
+                    return coefficient_text(value)
                 return "" if value is None else format_two_decimals(value)
             if c in (4, 5, 6) and not row["direct"]:
                 try:
@@ -298,6 +306,11 @@ class SheetModel(QAbstractTableModel):
                 row['cells'][2], 'DIRECTO')
         if c == 1:
             return "   " * self.outline.levels[r] + row["cells"][c]
+        if kind == 'detail' and c in (4, 5, 6) and row['cells'][c]:
+            try:
+                return format_two_decimals(row['cells'][c])
+            except ValueError:
+                pass
         return row["cells"][c]
 
     def reference_data(self, r, c, role):
@@ -390,6 +403,8 @@ class SheetModel(QAbstractTableModel):
             zero_allowed = row['cells'][2] == 'kg' and c in (5, 6)
             try:
                 value = numeric_text(value, positive=not signed and not zero_allowed,
+                                     nonnegative=zero_allowed, nonzero=signed, allow_blank=True)
+                value = numeric_text(input_text(value), positive=not signed and not zero_allowed,
                                      nonnegative=zero_allowed, nonzero=signed, allow_blank=True)
             except ValueError as error:
                 self.inputError.emit(str(error))
@@ -599,6 +614,7 @@ class SheetModel(QAbstractTableModel):
 
     def replace(self, rows, label=None, before_selection=None, after_selection=None):
         ensure_ids(rows)
+        normalize_rows(rows)
         refs.check_cycles(rows)
         upgrade_legacy(rows)
         freeze_rows(rows)
@@ -613,6 +629,7 @@ class SheetModel(QAbstractTableModel):
         self._replace(rows)
 
     def _replace(self, rows):
+        normalize_rows(rows)
         upgrade_legacy(rows)
         freeze_rows(rows)
         self.beginResetModel()
@@ -682,7 +699,8 @@ class SheetModel(QAbstractTableModel):
             return
         from metrado.arithmetic import numeric_text
         try:
-            value = numeric_text(value, positive=True, allow_blank=True)
+            value = numeric_text(input_text(numeric_text(value, positive=True, allow_blank=True)),
+                                 positive=True, allow_blank=True)
         except ValueError as error:
             self.inputError.emit(str(error))
             return

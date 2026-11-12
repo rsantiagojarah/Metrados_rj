@@ -57,14 +57,14 @@ fn quantity_for(unit: Unit, dimensions: &[Dimension]) -> Result<f64, DomainError
             return Err(DomainError::UnexpectedDimension);
         }
     }
-    let mut product = 1.0;
+    let mut measures = Vec::new();
     for name in required {
         let Some(dimension) = dimensions.iter().find(|item| item.name() == *name) else {
             return Err(DomainError::MissingDimension);
         };
-        product *= dimension.measure();
+        measures.push(dimension.measure());
     }
-    Ok(product)
+    crate::decimal::product(&measures)
 }
 
 fn has_duplicate_name(dimensions: &[Dimension]) -> bool {

@@ -5,3 +5,4 @@ edition = "2021"
 description = "Domain for one work-item quantity"
 
 [dependencies]
+bigdecimal = "0.4.11"

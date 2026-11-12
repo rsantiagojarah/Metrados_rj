@@ -48,7 +48,7 @@ class GroupCalculationTests(unittest.TestCase):
         rows = grouped_rows()
         values, errors = calculate(rows, engine)
         self.assertFalse(errors)
-        self.assertAlmostEqual(values[(1, 13)], 42.5226)
+        self.assertAlmostEqual(values[(1, 13)], 42.52)
         self.assertEqual(values[(9, 13)], 1)
         for index in (2, 5, 6):
             self.assertFalse(any(r == index for r, c in values))
@@ -75,7 +75,7 @@ class GroupCalculationTests(unittest.TestCase):
         self.assertEqual(model.values[(9, 13)], 1)
         model.setData(model.index(4, 4), '37.73')
         self.assertEqual(model.errors, {})
-        self.assertAlmostEqual(model.values[(1, 13)], 42.5226)
+        self.assertAlmostEqual(model.values[(1, 13)], 42.52)
 
     def test_edit_nested_detail_recalculates_only_its_item(self):
         class Counter:
@@ -144,8 +144,8 @@ class GroupStructureTests(unittest.TestCase):
         self.assertEqual(moved[pos]['cells'][1], 'VEREDAS 2')
         self.assertEqual(moved[pos + 1]['cells'][1], 'INGRESOS')
         self.assertEqual(outline.owners[pos + 3], outline.owners[pos])
-        self.assertAlmostEqual(values[(1, 13)], 26.2638)
-        self.assertAlmostEqual(values[(outline.owners[pos], 13)], 17.2588)
+        self.assertAlmostEqual(values[(1, 13)], 26.26)
+        self.assertAlmostEqual(values[(outline.owners[pos], 13)], 17.26)
         self.assertEqual(moved[outline.owners[pos]]['cells'][0], '01.02')
 
     def test_tab_details_and_groups_within_item_but_not_outside(self):
@@ -160,7 +160,7 @@ class GroupStructureTests(unittest.TestCase):
         self.assertEqual(Outline(restored).parents[pos], 6)
         values, errors = calculate(restored, engine)
         self.assertFalse(errors)
-        self.assertAlmostEqual(values[(1, 13)], 42.5226)
+        self.assertAlmostEqual(values[(1, 13)], 42.52)
         self.assertEqual(sorted(r['cells'][4] for r in restored if r['kind'] == 'detail'),
                          sorted(r['cells'][4] for r in rows if r['kind'] == 'detail'))
         with self.assertRaises(ValueError):
@@ -172,7 +172,7 @@ class GroupStructureTests(unittest.TestCase):
         rows = grouped_rows()
         moved, pos = move_sibling(rows, 5, -1)
         self.assertEqual(moved[2]['cells'][1], 'VEREDAS 2')
-        self.assertAlmostEqual(calculate(moved, engine)[0][(1, 13)], 42.5226)
+        self.assertAlmostEqual(calculate(moved, engine)[0][(1, 13)], 42.52)
         for destination in (6, 7, None):
             with self.assertRaises(ValueError):
                 move_to(rows, 5, destination)
@@ -272,7 +272,7 @@ class GroupInteractionTests(unittest.TestCase):
         index = self.window.table.currentIndex().row()
         self.assertEqual(index, 9)
         self.assertEqual(self.window.model.outline.parents[index], 0)
-        self.assertAlmostEqual(self.window.model.values[(1, 13)], 42.5226)
+        self.assertAlmostEqual(self.window.model.values[(1, 13)], 42.52)
 
     def test_keyboard_level_and_group_delete(self):
         self.window._select(5)
@@ -285,7 +285,7 @@ class GroupInteractionTests(unittest.TestCase):
         APP.processEvents()
         with patch.object(QMessageBox, 'question', return_value=QMessageBox.Yes):
             self.window.remove_row()
-        self.assertAlmostEqual(self.window.model.values[(1, 13)], 26.2638)
+        self.assertAlmostEqual(self.window.model.values[(1, 13)], 26.26)
         self.assertEqual(len(self.window.model.rows), 7)
 
     def test_copy_paste_group_with_keyboard_and_select_destination(self):
@@ -298,7 +298,7 @@ class GroupInteractionTests(unittest.TestCase):
         index = self.window.table.currentIndex().row()
         self.assertEqual(self.window.model.rows[index]['kind'], 'detail_group')
         self.assertEqual(self.window.model.outline.owners[index], 9)
-        self.assertAlmostEqual(self.window.model.values[(9, 13)], 17.2588)
+        self.assertAlmostEqual(self.window.model.values[(9, 13)], 17.26)
         dialog = DestinationDialog(self.window.model.rows, index, self.window.model.outline, self.window)
         indexes = [i.data(0, Qt.UserRole) for i in dialog.entries]
         self.assertIn(2, indexes)

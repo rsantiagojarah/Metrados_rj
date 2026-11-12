@@ -26,17 +26,17 @@ class DirectDisplayTests(unittest.TestCase):
                 model.setData(model.index(1, 3), '4')
                 model.set_direct(1, '8,6275')
                 self.assertEqual(model.data(model.index(1, 4)), label)
-                self.assertEqual(model.data(model.index(1, 5)), '8,6275')
+                self.assertEqual(model.data(model.index(1, 5)), '8.63')
                 self.assertFalse(model.flags(model.index(1, 5)) & Qt.ItemIsEditable)
                 self.assertFalse(model.setData(model.index(1, 5), '20'))
-                self.assertAlmostEqual(model.values[(1, result)], 34.51)
+                self.assertAlmostEqual(model.values[(1, result)], 34.52)
                 model.setData(model.index(1, 7), '2')
-                self.assertEqual(model.rows[1]['direct'], '8,6275')
-                self.assertAlmostEqual(model.values[(1, result)], 69.02)
+                self.assertEqual(model.rows[1]['direct'], '8.63')
+                self.assertAlmostEqual(model.values[(1, result)], 69.04)
                 model.set_direct(1, '10')
-                self.assertEqual(model.data(model.index(1, 5)), '10')
+                self.assertEqual(model.data(model.index(1, 5)), '10.00')
                 model.undo_stack.undo()
-                self.assertEqual(model.data(model.index(1, 5)), '8,6275')
+                self.assertEqual(model.data(model.index(1, 5)), '8.63')
                 model.set_direct(1, '')
                 self.assertTrue(model.flags(model.index(1, 5)) & Qt.ItemIsEditable)
                 self.assertEqual(model.data(model.index(1, 5)), '')
@@ -48,7 +48,7 @@ class DirectDisplayTests(unittest.TestCase):
         self.assertTrue(model.setData(model.index(1, 5), '0,2'))
         self.assertEqual(model.rows[1]['direct'], '')
         self.assertEqual(model.data(model.index(1, 9)), '25.00')
-        self.assertEqual(model.data(model.index(1, 5)), '0,2')
+        self.assertEqual(model.data(model.index(1, 5)), '0.20')
         self.assertEqual(model.values[(1, 10)], 5)
 
     def test_direct_length_uses_length_label_and_keeps_its_result_column(self):
@@ -56,7 +56,7 @@ class DirectDisplayTests(unittest.TestCase):
         model.setData(model.index(1, 3), '4')
         model.set_direct(1, '8,6275')
         self.assertEqual(model.data(model.index(1, 4)), 'LONGITUD')
-        self.assertAlmostEqual(model.values[(1, 8)], 34.51)
+        self.assertAlmostEqual(model.values[(1, 8)], 34.52)
 
     def test_excel_matches_label_value_and_result(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -71,9 +71,9 @@ class DirectDisplayTests(unittest.TestCase):
                 try:
                     sheet = book['Desarrollo']
                     self.assertEqual(sheet['E13'].value, label)
-                    self.assertEqual(sheet['F13'].value, 8.6275)
-                    self.assertIn('D13*H13*F13', sheet[result].value)
-                    self.assertAlmostEqual(cached['Desarrollo'][result].value, 34.51)
+                    self.assertEqual(sheet['F13'].value, 8.63)
+                    self.assertIn('ROUND(F13,2)', sheet[result].value)
+                    self.assertAlmostEqual(cached['Desarrollo'][result].value, 34.52)
                 finally:
                     book.close()
                     cached.close()
@@ -89,8 +89,8 @@ class DirectDisplayTests(unittest.TestCase):
             try:
                 sheet = book['Desarrollo']
                 self.assertEqual(sheet['F13'].value, 'LONGITUD')
-                self.assertEqual(sheet['E13'].value, 8.6275)
-                self.assertIn('D13*H13*E13', sheet['I13'].value)
+                self.assertEqual(sheet['E13'].value, 8.63)
+                self.assertIn('ROUND(E13,2)', sheet['I13'].value)
             finally:
                 book.close()
 

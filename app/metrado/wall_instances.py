@@ -7,8 +7,9 @@ from uuid import uuid4
 from metrado.hierarchy import materialize, Outline, MAX_ROWS
 from metrado.identity import ensure_ids
 from metrado.sheet import new_row
-from metrado.wall_types import WallType, generate_wall_rows, positive
+from metrado.wall_types import WallType, generate_wall_rows, positive, measurement
 from metrado.wall_rebar import hook_lengths, position_key
+from metrado.precision import normalize_rows
 
 
 DESTINATION_UNITS = {
@@ -67,6 +68,8 @@ def apply_wall(rows, wall, length, height, destinations, name, instance_id=None,
     if not isinstance(name, str) or not name.strip() or len(name) > 160:
         raise ValueError('Escribe un nombre de tramo de hasta 160 caracteres.')
     wall = WallType.from_dict(asdict(wall))
+    length = measurement(length, 'Longitud del tramo')
+    height = None if height is None else measurement(height, 'Altura del tramo')
     distributions = list(wall.distributions)
     if wall.cut_left and not any(item['component'] == 'refuerzo_cortado' for item in distributions):
         distributions.append(dict(component='refuerzo_cortado',side='izquierda',diameter=wall.cut_diameter))
@@ -142,5 +145,6 @@ def apply_wall(rows, wall, length, height, destinations, name, instance_id=None,
             details = [title, *details]
         end = outline.ends[by_id[destination]]
         result[end:end] = details
+    normalize_rows(result)
     Outline(result, strict=True)
     return result

@@ -11,6 +11,7 @@ from PySide6.QtCore import QStandardPaths
 from metrado.sheet import new_row, steel_detail
 from metrado.steel_config import DIAMETERS
 from metrado.wall_rebar import reinforcement
+from metrado.precision import input_text
 
 COMPONENTS = {
     'pantalla_vertical': 'Pantalla · vertical',
@@ -65,6 +66,10 @@ def nonnegative(value, label):
     return result
 
 
+def measurement(value, label):
+    return positive(input_text(str(positive(value, label))), label)
+
+
 def wall_catalog_path():
     return Path(QStandardPaths.writableLocation(QStandardPaths.GenericConfigLocation)) / 'Metrados' / 'muros.sqlite3'
 
@@ -96,9 +101,11 @@ class WallType:
             raise ValueError('El tipo de muro necesita un nombre.')
         dimensions = ('screen_height', 'top_thickness', 'bottom_thickness', 'footing_thickness')
         for key in dimensions + ('dentellon_width', 'dentellon_depth', 'cut_length', 'cut_spacing'):
-            setattr(self, key, positive(getattr(self, key), key.replace('_', ' ')))
+            validate = positive if key == 'cut_spacing' else measurement
+            setattr(self, key, validate(getattr(self, key), key.replace('_', ' ')))
         for key in ('footing_left', 'footing_right', 'dentellon_slope'):
-            setattr(self, key, nonnegative(getattr(self, key), key.replace('_', ' ')))
+            value = nonnegative(getattr(self, key), key.replace('_', ' '))
+            setattr(self, key, float(input_text(str(value))))
         if self.cut_diameter not in DIAMETERS:
             raise ValueError('Selecciona un diámetro del catálogo para el refuerzo cortado.')
         if any(type(value) is not bool for value in (self.dentellon, self.cut_left, self.horizontal_in_footing)):
@@ -112,6 +119,8 @@ class WallType:
             for length in hooks.values():
                 if type(length) not in (int, float) or not math.isfinite(length) or not 0 <= length <= 1e6:
                     raise ValueError('El gancho debe ser un número entre 0 y 1 000 000 m.')
+            for end in hooks:
+                hooks[end] = float(input_text(str(hooks[end])))
         if not isinstance(self.distributions, list) or len(self.distributions) > 100:
             raise ValueError('Se admiten hasta 100 distribuciones de acero.')
         for item in self.distributions:
@@ -123,7 +132,7 @@ class WallType:
             if item['diameter'] not in DIAMETERS:
                 raise ValueError('Selecciona un diámetro del catálogo.')
             if item['fixed_length'] is not None:
-                positive(item['fixed_length'], 'Longitud fija')
+                item['fixed_length'] = measurement(item['fixed_length'], 'Longitud fija')
 
     @classmethod
     def from_dict(cls, data):
@@ -228,8 +237,8 @@ def _bars(length, spacing):
 def generate_wall_rows(wall, length, height=None):
     """Return detail rows for concrete, formwork and reinforcement per tramo."""
     wall.validate()
-    length = positive(length, 'Longitud del tramo')
-    height = positive(wall.screen_height if height is None else height, 'Altura de pantalla')
+    length = measurement(length, 'Longitud del tramo')
+    height = measurement(wall.screen_height if height is None else height, 'Altura de pantalla')
     rows = []
     thickness_avg = (wall.top_thickness + wall.bottom_thickness) / 2
     rows.append(("m3", 'Muro · concreto de pantalla', [length, thickness_avg, height], 1, 'pantalla'))

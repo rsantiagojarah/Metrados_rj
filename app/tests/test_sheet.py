@@ -116,7 +116,7 @@ class SheetTests(unittest.TestCase):
         self.assertNotIn(15, errors)
         self.assertAlmostEqual(values[(15, 8)], 1336.66, places=4)
         self.assertAlmostEqual(values[(15, 11)], 3.978, places=2)
-        self.assertAlmostEqual(values[(15, 12)], 2 * 12.61 * 53 * values[(15, 11)], places=4)
+        self.assertEqual(values[(15, 12)], 5316.77)
         self.assertEqual(rows[15]["cells"][9], "1")
         steel_weights = [values[(index, 12)] for index in range(15, len(rows))
                          if rows[index]["kind"] == "detail"]
@@ -138,7 +138,7 @@ class SheetTests(unittest.TestCase):
         values, errors = calculate(rows, engine)
         self.assertEqual(errors, {})
         once = 2 * 12.61 * 53 * values[(1, 11)]
-        self.assertAlmostEqual(values[(1, 12)], once * 2, places=3)
+        self.assertEqual(values[(1, 12)], 10633.54)
 
     def test_empty_gancho_counts_as_zero(self):
         rows = [new_row("item", unit="kg"), new_row("detail", unit="kg")]
@@ -249,7 +249,7 @@ class SheetTests(unittest.TestCase):
         self.assertEqual(display(7), "53")
         self.assertEqual(display(8), "1336.66")
         self.assertEqual(display(9), '1"')
-        self.assertEqual(display(10), f"{model.values[(15, 11)]:.2f}")
+        self.assertEqual(display(10), str(model.values[(15, 11)]))
         self.assertEqual(display(11), f"{model.values[(15, 12)]:.2f}")
         self.assertEqual(display(12), "")
         self.assertEqual(display(4), "10.85")
@@ -366,7 +366,7 @@ class WindowTests(unittest.TestCase):
         self.assertEqual(model.rows[15]["cells"][9], "1")
         self.assertEqual(model.rows[15]["cells"][10], "53")
         self.assertIn('Ø1/2"', model.rows[15]["cells"][1])
-        self.assertAlmostEqual(model.values[(15, 12)], before / 4)
+        self.assertEqual(model.values[(15, 12)], 1329.19)
         self.assertAlmostEqual(model.values[(15, 8)], 1336.66)
         self.assertFalse(model.setData(model.index(15, 9), "inválido"))
         self.assertEqual(model.data(model.index(15, 9)), '1/2"')

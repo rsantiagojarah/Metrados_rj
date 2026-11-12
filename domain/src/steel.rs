@@ -26,9 +26,9 @@ pub fn sheet_steel(
     require_positive(elements.abs())?;
     require_positive(veces.abs())?;
     let diameter_m = parse_diameter_meters(diameter)?;
-    let length = largo + gancho + empalme;
+    let length = crate::decimal::sum(&[largo, gancho, empalme])?;
     let kg_per_m = std::f64::consts::PI / 4.0 * diameter_m * diameter_m * STEEL_DENSITY;
-    let weight = elements * length * bars * kg_per_m * veces;
+    let weight = crate::decimal::product(&[elements, length, bars, kg_per_m, veces])?;
     if !length.is_finite() || !kg_per_m.is_finite() || !weight.is_finite() || weight == 0.0 {
         return Err(DomainError::NonPositiveMeasure);
     }

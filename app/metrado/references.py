@@ -142,8 +142,7 @@ def linked_quantity(base, factor, similar, times, engine):
         raise ValueError('Total de origen inválido.')
     if base == 0:
         return 0.0
-    converted = engine.ask_sheet_quantity('und', [], factor, -1.0 if base < 0 else 1.0, abs(base))
-    return engine.ask_sheet_quantity('und', [], similar, times * (-1.0 if converted < 0 else 1.0), abs(converted))
+    return engine.ask_sheet_product([base, factor, similar, times])
 
 
 def calculate_linked(rows, engine, plain):

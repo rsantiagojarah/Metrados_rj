@@ -11,7 +11,7 @@ from openpyxl import load_workbook
 from PySide6.QtCore import QCoreApplication, QEvent
 from PySide6.QtWidgets import QApplication, QToolBar, QMessageBox
 import metrado._enlace as engine
-from metrado.excel_export import ExcelReport, export_workbook, PENDING
+from metrado.excel_export import ExcelReport, export_workbook, PENDING, COEFFICIENT_FORMAT
 from metrado.display import format_two_decimals
 from metrado.identity import ensure_ids
 from metrado.references import make_reference
@@ -173,7 +173,7 @@ class ExcelExportTests(unittest.TestCase):
         book, cache = self.read(rows)
         steel = report.positions[8]
         item = report.positions[7]
-        self.assertEqual(book['Desarrollo'][f'K{steel}'].number_format, '0.00')
+        self.assertEqual(book['Desarrollo'][f'K{steel}'].number_format, COEFFICIENT_FORMAT)
         self.assertEqual(cache['Desarrollo'][f'K{steel}'].value,
                          float(rows[8]['steel_catalog']['1/2"']['weight']))
         self.assertTrue(book['Desarrollo'][f'N{item}'].alignment.shrink_to_fit)
@@ -225,13 +225,13 @@ class ExcelExportTests(unittest.TestCase):
         report = ExcelReport('Obra', rows, engine)
         book, cache = self.read(rows)
         loan, own = report.footers[1], report.footers[3]
-        for footer, expected in ((loan, 2915.28 * 0.8), (own, 2915.28 * 0.2)):
+        for footer, expected in ((loan, 2332.22), (own, 583.06)):
             formula = book['Desarrollo'][f'K{footer}'].value
             self.assertIn(f'J{footer}>0', formula)
             self.assertNotIn(f'J{footer}>=1', formula)
             self.assertAlmostEqual(cache['Desarrollo'][f'K{footer}'].value, expected)
-        self.assertAlmostEqual(cache['Desarrollo'][f'N{report.positions[0]}'].value, 2915.28 * 0.8)
-        self.assertAlmostEqual(cache['Desarrollo'][f'N{report.positions[2]}'].value, 2915.28 * 0.2)
+        self.assertAlmostEqual(cache['Desarrollo'][f'N{report.positions[0]}'].value, 2332.22)
+        self.assertAlmostEqual(cache['Desarrollo'][f'N{report.positions[2]}'].value, 583.06)
 
     def test_values_export_has_no_formulas_and_keeps_fe_below_one(self):
         rows = geometry(count=1)
@@ -247,11 +247,11 @@ class ExcelExportTests(unittest.TestCase):
                     self.assertFalse(isinstance(value, str) and value.startswith('='), value)
         report = ExcelReport('Obra', rows, engine, formulas=False)
         footer = report.footers[1]
-        expected = 2915.28 * 0.8
+        expected = 2332.22
         self.assertEqual(book['Desarrollo'][f'K{footer}'].value, expected)
         self.assertEqual(book['Desarrollo'][f'N{report.positions[0]}'].value, expected)
 
-    def test_values_export_preserves_full_calculation_precision(self):
+    def test_values_export_stores_canonical_two_decimal_result(self):
         rows = geometry('und', 1)
         rows[1]['direct'] = '343.2149'
         export_workbook(self.path, 'Obra', rows, engine, formulas=False)
@@ -278,8 +278,8 @@ class ExcelExportTests(unittest.TestCase):
         self.assertEqual(book['Desarrollo'][f'I{steel}'].value, length)
         self.assertEqual(book['Desarrollo'][f'K{steel}'].value, weight)
         self.assertEqual(book['Desarrollo'][f'L{steel}'].value, total)
-        self.assertEqual(book['Desarrollo'][f'I{steel}'].value * book['Desarrollo'][f'K{steel}'].value,
-                         book['Desarrollo'][f'L{steel}'].value)
+        self.assertEqual(format_two_decimals(book['Desarrollo'][f'I{steel}'].value * book['Desarrollo'][f'K{steel}'].value),
+                         format_two_decimals(book['Desarrollo'][f'L{steel}'].value))
         self.assertNotEqual(weight, float(format(weight, '.2f')))
 
     def test_multiple_fe_blocks_and_free_details_contribute_once(self):
@@ -389,7 +389,7 @@ class ExcelExportTests(unittest.TestCase):
         self.assertEqual(cache['Desarrollo']['N12'].value, PENDING)
         self.assertEqual(cache['Resumen']['D12'].value, PENDING)
         self.assertIn('COUNT(O13:O14)=2', book['Desarrollo']['N12'].value)
-        self.assertIn('E13>0', book['Desarrollo']['K13'].value)
+        self.assertIn('ROUND(E13,2)>0', book['Desarrollo']['K13'].value)
 
     def test_missing_source_and_cycle(self):
         rows = geometry()

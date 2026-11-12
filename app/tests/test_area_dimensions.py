@@ -72,7 +72,7 @@ class AreaDimensionsTests(unittest.TestCase):
                         self.assertIn('COUNT(E13:G13)=2', formula)
                         self.assertIn('COUNTA(E13:G13)=2', formula)
                         self.assertIn('COUNTIF(E13:G13,">0")=2', formula)
-                        self.assertIn('PRODUCT(E13:G13)', formula)
+                        self.assertIn('PRODUCT(IF(E13="",1,ROUND(E13,2))', formula)
                         self.assertEqual(cached['Desarrollo']['J13'].value, 10)
                     finally:
                         formulas.close()

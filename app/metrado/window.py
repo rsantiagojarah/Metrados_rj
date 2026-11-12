@@ -1,3 +1,8 @@
+"""Window actions coordinate one document and its shared Qt selection/history.
+
+Actions stay together because separating them by toolbar would duplicate the
+active-item, editor-commit and undo contracts; calculations live in the domain.
+"""
 from pathlib import Path
 import sqlite3
 from shiboken6 import isValid
@@ -39,6 +44,8 @@ from metrado.wall_types import WallTypeStore
 from metrado.wall_instances import apply_wall, selected_wall
 from metrado.wall_dialog import WallTypeDialog, WallGeneratorDialog
 from metrado.numeric_edit import NumericEdit
+from metrado.precision import input_text
+from metrado.display import format_two_decimals
 
 
 class PlantillaWindow(QMainWindow):
@@ -863,6 +870,9 @@ class PlantillaWindow(QMainWindow):
             try:
                 area_m2 = self._enlace.ask_sheet_quantity(
                     'm2', [], 1.0, 1.0, measurement['area_m2'])
+                area_m2 = float(input_text(str(area_m2)))
+                if area_m2 <= 0:
+                    raise ValueError('Área demasiado pequeña para expresarla con dos decimales.')
             except (KeyError, TypeError, ValueError, OverflowError) as error:
                 raise ValueError('Una de las áreas recibidas está fuera del rango admitido.') from error
             name = str(measurement.get('name', '')).strip()
@@ -941,7 +951,7 @@ class PlantillaWindow(QMainWindow):
                     'm', [], 1.0, 1.0, measurement['length_m'])
             except (KeyError, TypeError, ValueError, OverflowError) as error:
                 raise ValueError('Una de las longitudes recibidas está fuera del rango admitido.') from error
-            length_text = f'{length_m:.2f}'
+            length_text = format_two_decimals(length_m)
             length_m = float(length_text)
             if length_m <= 0:
                 raise ValueError('Una longitud es demasiado pequeña para expresarla con dos decimales.')
@@ -1002,7 +1012,7 @@ class PlantillaWindow(QMainWindow):
                 'm', [], 1.0, 1.0, distribution_m)
         except (TypeError, ValueError, OverflowError) as error:
             raise ValueError('Las distancias recibidas deben ser positivas y finitas.') from error
-        length_text = f'{length_m:.2f}'
+        length_text = format_two_decimals(length_m)
         length_m = float(length_text)
         if length_m <= 0:
             raise ValueError('El largo es demasiado pequeño para expresarlo con dos decimales.')

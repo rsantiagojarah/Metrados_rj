@@ -53,7 +53,7 @@ class SteelRulesTests(unittest.TestCase):
                 steel_detail('Estribos', 1, .8, 0, 0, '1/4"', 16)]
         values, errors = calculate(rows, engine)
         self.assertFalse(errors)
-        self.assertAlmostEqual(values[(1, 12)], 16 * .8 * .2486, places=3)
+        self.assertEqual(values[(1, 12)], 3.18)
 
     def test_legacy_global_catalog_preserves_custom_values(self):
         with tempfile.TemporaryDirectory() as directory:
