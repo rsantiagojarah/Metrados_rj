@@ -302,6 +302,7 @@ def validate_project(data):
     if len(data["rows"]) > 10000:
         raise ValueError("La planilla supera el límite de 10 000 filas.")
     current, legacy_adjustment = None, False
+    wall_cache = set()
     for row in data["rows"]:
         kinds = ('chapter', 'item', 'detail', 'detail_group') if data['version'] >= 3 else ('chapter', 'item', 'detail')
         if not isinstance(row, dict) or row.get("kind") not in kinds:
@@ -327,7 +328,7 @@ def validate_project(data):
         refs.validate_row(row)
         if 'wall_generated' in row:
             from metrado.wall_instances import validate_wall_row
-            validate_wall_row(row)
+            validate_wall_row(row, wall_cache)
         sync_dimensions(row)
         if data['version'] >= 2 and 'level' not in row:
             raise ValueError('Falta el nivel de una fila.')

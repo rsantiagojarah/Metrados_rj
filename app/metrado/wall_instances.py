@@ -3,6 +3,7 @@ from copy import deepcopy
 from dataclasses import asdict
 from decimal import Decimal, ROUND_HALF_UP
 from uuid import uuid4
+import json
 
 from metrado.hierarchy import materialize, Outline, MAX_ROWS
 from metrado.identity import ensure_ids
@@ -19,7 +20,7 @@ DESTINATION_UNITS = {
 }
 
 
-def validate_wall_row(row):
+def validate_wall_row(row, wall_cache=None):
     config = row.get('wall_generated')
     if config is None:
         return
@@ -35,7 +36,19 @@ def validate_wall_row(row):
     for field in ('instance_id', 'name', 'key'):
         if not isinstance(config.get(field), str) or not 0 < len(config[field]) <= 200:
             raise ValueError('Identificación de tramo inválida.')
-    WallType.from_dict(deepcopy(config.get('wall')))
+    wall = config.get('wall')
+    if wall_cache is None:
+        WallType.from_dict(deepcopy(wall))
+    else:
+        try:
+            key = json.dumps(wall, sort_keys=True, separators=(',', ':'), allow_nan=False)
+        except (TypeError, ValueError) as error:
+            raise ValueError('Configuración de muro inválida.') from error
+        if key not in wall_cache:
+            WallType.from_dict(deepcopy(wall))
+            # This cache belongs to one validation, never to mutable project state.
+            if len(wall_cache) < 256:
+                wall_cache.add(key)
     positive(config.get('length'), 'Longitud del tramo')
     if config.get('height') is not None:
         positive(config['height'], 'Altura del tramo')

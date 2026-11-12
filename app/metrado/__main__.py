@@ -1,10 +1,13 @@
 import sys
 
 from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtCore import QTimer
 
-from metrado.autocad_bridge import AutoCadBridgeServer, BridgeError
+from metrado.autocad_bridge import AutoCadBridgeServer
 from metrado.autocad_integration import AutoCadRequestDispatcher
 from metrado.messages import UNAVAILABLE
+from metrado.project_session import LastProjectStore
+from metrado.startup import StartupCoordinator
 
 
 def main():
@@ -16,18 +19,20 @@ def main():
         return 1
     from metrado.window import PlantillaWindow
 
-    window = PlantillaWindow(enlace)
+    store = LastProjectStore()
+    window = PlantillaWindow(enlace, session_store=store, initial_rows=[])
     dispatcher = AutoCadRequestDispatcher(window)
     bridge = AutoCadBridgeServer(request_handler=dispatcher.dispatch)
-    try:
-        bridge.start()
-    except (BridgeError, OSError) as error:
-        bridge.last_error = str(error)
     window.autocad_bridge = bridge
     window.autocad_dispatcher = dispatcher
-    app.aboutToQuit.connect(bridge.stop)
+    startup = StartupCoordinator(window, store, bridge)
+    app.aboutToQuit.connect(startup.cancel)
     window.show()
-    return app.exec()
+    QTimer.singleShot(0, startup.start)
+    try:
+        return app.exec()
+    finally:
+        startup.shutdown()
 
 
 if __name__ == "__main__":

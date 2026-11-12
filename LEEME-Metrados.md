@@ -4,7 +4,11 @@
 
 Haz doble clic en **Abrir Metrados.cmd**, en esta carpeta. Abre la aplicación de escritorio usando el entorno Python ya preparado. Mantén juntas las carpetas del proyecto; este acceso no es un instalador independiente.
 
-La primera ventana muestra un ejemplo basado en la imagen de referencia. **Nueva planilla** crea una hoja vacía y **Cargar ejemplo** recupera la demostración, previa consulta si hay cambios sin guardar.
+La ventana aparece mientras se recupera la última obra, con el aviso **Abriendo obra…**. La lectura y validación se ejecutan en segundo plano; la edición se habilita cuando la obra está lista. Si no hay una obra anterior, queda una planilla vacía. **Nueva planilla** crea una hoja vacía y **Cargar ejemplo** recupera la demostración, previa consulta si hay cambios sin guardar. La conexión con AutoCAD se prepara después, sin retrasar la aparición de la ventana.
+
+Después de abrir o guardar correctamente una obra SQLite, Metrados recuerda su ruta en la configuración local del usuario y la reabre en el siguiente inicio. La primera vez después de esta actualización, abre tu obra una vez para registrarla. Si el archivo ya no existe, se inicia una planilla vacía. Si hay un problema temporal de acceso al servidor o de permisos, se muestra el aviso y se conserva la ruta para reintentar en el próximo inicio. Los cambios de la obra siguen requiriendo **Guardar / Ctrl+S**.
+
+Se admiten archivos en carpetas compartidas de Windows, por ejemplo `\\servidor\recurso\carpeta\Obra.metrado.db`. Selecciona el archivo de base de datos dentro de la carpeta; la cuenta de Windows debe tener acceso al recurso y permiso de escritura para guardar. La aplicación conserva los bloqueos y controles de revisión de SQLite.
 
 La interfaz adapta la presentación de Gitbin: cabecera compacta con el nombre editable de la obra, pestaña subrayada en turquesa y barra de botones planos con símbolos sobre sus etiquetas. Usa Segoe UI en los tamaños de la referencia y números en Consolas. La estructura de la planilla permanece igual. Si la aplicación estaba abierta al actualizarla, ciérrala guardando tus cambios y vuelve a abrirla para ver el diseño.
 

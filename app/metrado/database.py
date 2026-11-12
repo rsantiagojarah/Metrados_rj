@@ -35,7 +35,12 @@ class ConflictError(ValueError):
 
 
 def _connect(path, mode):
-    connection = sqlite3.connect(Path(path).resolve().as_uri() + '?mode=' + mode,
+    # SQLite's default Windows build rejects file://server/share authorities.
+    # Keep the UNC host in the path (file:////server/share), with empty authority.
+    uri = Path(path).absolute().as_uri()
+    if uri.startswith('file://') and not uri.startswith('file:///'):
+        uri = 'file:////' + uri[len('file://'):]
+    connection = sqlite3.connect(uri + '?mode=' + mode,
                                  uri=True, timeout=2)
     try:
         connection.execute('PRAGMA foreign_keys = ON')

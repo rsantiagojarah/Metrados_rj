@@ -46,11 +46,14 @@ from metrado.wall_dialog import WallTypeDialog, WallGeneratorDialog
 from metrado.numeric_edit import NumericEdit
 from metrado.precision import input_text
 from metrado.display import format_two_decimals
+from metrado.project_session import read_last_project
 
 
 class PlantillaWindow(QMainWindow):
-    def __init__(self, enlace, catalog_store=None, shortcut_store=None):
+    def __init__(self, enlace, catalog_store=None, shortcut_store=None, session_store=None,
+                 initial_rows=None):
         super().__init__()
+        self.session_store = session_store
         self._enlace, self._path, self._dirty = enlace, None, False
         self._autocad_length_target = None
         self._revision = None
@@ -58,7 +61,7 @@ class PlantillaWindow(QMainWindow):
         self.setStatusBar(ContextStatusBar(self))
         self.resize(1480, 780)
         self.setMinimumSize(900, 480)
-        self.model = SheetModel(enlace, example_rows())
+        self.model = SheetModel(enlace, example_rows() if initial_rows is None else initial_rows)
         self.catalog_store = catalog_store or CatalogStore()
         self.wall_type_store = WallTypeStore(self.catalog_store.path.with_name('muros.sqlite3'))
         self.shortcut_store = shortcut_store or ShortcutStore(
@@ -84,7 +87,7 @@ class PlantillaWindow(QMainWindow):
         layout = QVBoxLayout(central)
         layout.setContentsMargins(6, 0, 6, 6)
         layout.setSpacing(3)
-        self.title_edit = QLineEdit("Ejemplo de planilla de metrado")
+        self.title_edit = QLineEdit("Ejemplo de planilla de metrado" if initial_rows is None else '')
         self._committed_title = self.title_edit.text()
         self.title_edit.setPlaceholderText("Nombre de la obra o proyecto")
         header_toolbar(self, self.title_edit)
@@ -1162,6 +1165,36 @@ class PlantillaWindow(QMainWindow):
             self._load("", [])
             self.title_edit.setFocus()
 
+    def _remember_project(self):
+        if self.session_store is None or self._path is None:
+            return
+        try:
+            self.session_store.remember(self._path)
+        except (OSError, ValueError) as error:
+            self.statusBar().showMessage(f'No se pudo recordar la última obra: {error}', 15000)
+
+    def restore_last_project(self):
+        if self.session_store is None:
+            return False
+        return self.apply_last_project(read_last_project(self.session_store, open_document))
+
+    def apply_last_project(self, result):
+        if result.error is not None:
+            self._load('', [])
+            if result.missing:
+                try:
+                    self.session_store.clear()
+                except (OSError, ValueError) as settings_error:
+                    self.statusBar().showMessage(f'No se pudo actualizar la última obra: {settings_error}', 15000)
+            else:
+                self.statusBar().showMessage(f'No se pudo reabrir la última obra: {result.error}', 15000)
+            return False
+        if result.document is None:
+            return False
+        title, rows, revision = result.document
+        self._load(title, rows, result.path, revision)
+        return True
+
     def load_example(self):
         if self._can_discard():
             self._load("Ejemplo de planilla de metrado", example_rows())
@@ -1179,6 +1212,8 @@ class PlantillaWindow(QMainWindow):
             QMessageBox.warning(self, "No se pudo abrir", str(error))
             return
         self._load(title, rows, Path(filename) if revision is not None else None, revision)
+        if revision is not None:
+            self._remember_project()
         if revision is None:
             # Imported data must be saved to a new SQLite file, never over JSON.
             self.model.undo_stack.resetClean()
@@ -1242,6 +1277,7 @@ class PlantillaWindow(QMainWindow):
         self.model.undo_stack.setClean()
         self._refresh_title()
         self.statusBar().showMessage("Planilla guardada: " + str(path))
+        self._remember_project()
         return True
 
     def export_excel(self):
@@ -1313,6 +1349,9 @@ class PlantillaWindow(QMainWindow):
 
     def closeEvent(self, event):
         if self._can_discard():
+            startup = getattr(self, 'startup', None)
+            if startup is not None:
+                startup.cancel()
             # Dispose commands while their model/widgets are still alive.
             self.model.undo_stack.blockSignals(True)
             self.model.undo_stack.clear()

@@ -211,6 +211,8 @@ class FastSelectionTests(unittest.TestCase):
     def tearDown(self):
         with patch.object(self.window, '_can_discard', return_value=True):
             self.window.close()
+        # Release Qt-owned MIME data while QApplication is still alive.
+        APP.clipboard().clear()
         self.window.deleteLater()
         QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
         self.temp.cleanup()
