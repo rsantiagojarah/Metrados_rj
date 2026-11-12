@@ -19,11 +19,11 @@ def validate_swelling(row):
     if 'volume_factor' in row:
         config = row['volume_factor']
         if row['kind'] != 'detail' or row['cells'][2] != 'm3':
-            raise ValueError('El FE solo se admite en detalles m3.')
+            raise ValueError('El ajuste por factor solo se admite en detalles m3.')
         if (not isinstance(config, dict) or set(config) != {'block', 'factor', 'note'} or
                 not isinstance(config.get('block'), str) or not config['block'] or len(config['block']) > 128 or
                 not isinstance(config.get('note'), str) or len(config['note']) > 1200):
-            raise ValueError('Configuración de FE inválida.')
+            raise ValueError('Configuración de ajuste por factor inválida.')
         factor_number(config['factor'])
     if 'swelling' not in row:
         return
@@ -48,15 +48,20 @@ def factor_number(text):
     try:
         number = percent_number(text)
     except ValueError as error:
-        raise ValueError('Ingresa un FE numérico y finito, por ejemplo 1,20 o 0,80.') from error
+        raise ValueError('Ingresa un factor numérico y finito, por ejemplo 1,20 o 0,80.') from error
     if number <= 0:
-        raise ValueError('El FE debe ser mayor que 0. Usa 1,20 para esponjar o 0,80 para prorratear.')
+        raise ValueError('El factor debe ser mayor que 0. Usa 0,70 para aplicar el 70 % o 1,20 para aplicar el 120 %.')
     return number
 
 
 def factor_text(config):
     factor = swelling_factor(config)
     return (f'{factor:.2f}' if factor == round(factor, 2) else format(factor, '.15g')).replace('.', ',')
+
+
+def factor_description(config):
+    """Existing notes describe the adjustment; its value does not imply a purpose."""
+    return config.get('note', '').strip() or 'Ajuste por factor'
 
 
 def volume_blocks(rows):

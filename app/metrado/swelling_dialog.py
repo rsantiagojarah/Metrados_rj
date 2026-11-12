@@ -1,4 +1,4 @@
-"""Direct FE input for selected consecutive details."""
+"""Named factor adjustment for selected consecutive details."""
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QDialog, QDialogButtonBox, QFormLayout, QLabel, QLineEdit, QVBoxLayout
 
@@ -10,22 +10,22 @@ from metrado.numeric_edit import NumericEdit
 class SwellingDialog(QDialog):
     def __init__(self, count, base, engine, config=None, parent=None):
         super().__init__(parent)
-        self.setWindowTitle('Factor de esponjamiento')
-        self.setMinimumWidth(390)
+        self.setWindowTitle('Ajuste por factor')
+        self.setMinimumWidth(470)
         self.base, self.engine = base, engine
         self.remove = False
         config = config or {}
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel(f'{count} detalle(s) consecutivo(s) seleccionados · m³'))
-        layout.addWidget(QLabel('Mayor que 1 esponja. Entre 0 y 1 prorratea: 0,80 es el 80 %.'))
+        layout.addWidget(QLabel('0,70 aplica el 70 % del volumen; 1,20 aplica el 120 %.'))
         form = QFormLayout()
         self.factor = NumericEdit(config.get('factor', ''), positive=True, validate=factor_number)
-        self.factor.setPlaceholderText('1,20 esponja · 0,80 prorratea')
+        self.factor.setPlaceholderText('0,70 = 70 % · 1,20 = 120 %')
         self.note = QLineEdit(config.get('note', ''))
         self.note.setMaxLength(1200)
-        self.note.setPlaceholderText('Opcional; visible al pasar el cursor sobre FE')
-        form.addRow('FE (factor):', self.factor)
-        form.addRow('Observación:', self.note)
+        self.note.setPlaceholderText('Ej.: Reparto de relleno: material de préstamo — 70 %')
+        form.addRow('F (factor):', self.factor)
+        form.addRow('Descripción del ajuste:', self.note)
         layout.addLayout(form)
         self.preview = QLabel()
         self.preview.setTextFormat(Qt.PlainText)
@@ -33,7 +33,7 @@ class SwellingDialog(QDialog):
         self.factor.inputError.connect(self.preview.setText)
         layout.addWidget(self.preview)
         self.buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        self.remove_button = self.buttons.addButton('Quitar FE', QDialogButtonBox.ActionRole)
+        self.remove_button = self.buttons.addButton('Quitar ajuste', QDialogButtonBox.ActionRole)
         self.remove_button.setEnabled(bool(config))
         self.remove_button.clicked.connect(self.remove_factor)
         self.buttons.accepted.connect(self.accept)

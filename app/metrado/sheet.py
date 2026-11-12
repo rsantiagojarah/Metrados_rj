@@ -274,7 +274,7 @@ def _calculate_plain(rows, engine, sources=None):
                 values[(end, 14)] = subtotal
                 contributions.append(subtotal)
             except (ValueError, KeyError, OverflowError):
-                errors[current] = 'Hay un bloque FE pendiente o fuera de rango.'
+                errors[current] = 'Hay un bloque con ajuste por factor pendiente o fuera de rango.'
             index = end
         elif current is not None and row['kind'] == 'detail':
             quantity = values.get((index, RESULT_COLUMN[row['cells'][2]]))
@@ -315,7 +315,7 @@ def validate_project(data):
         if 'swelling' in row and data['version'] < 4:
             raise ValueError('El esponjamiento requiere formato JSON versión 4.')
         if 'volume_factor' in row and data['version'] < 5:
-            raise ValueError('El FE por detalles requiere formato JSON versión 5.')
+            raise ValueError('El ajuste por factor en detalles requiere formato JSON versión 5.')
         validate_swelling(row)
         if ('steel_catalog' in row or 'steel_hooks' in row) and data['version'] < 6:
             raise ValueError('El catálogo de acero requiere formato JSON versión 6.')
@@ -344,7 +344,7 @@ def validate_project(data):
             raise ValueError("Hay detalles sin una partida asociada.")
         else:
             if legacy_adjustment and 'volume_factor' in row:
-                raise ValueError('La partida mezcla el ajuste antiguo con FE por detalles.')
+                raise ValueError('La partida mezcla el ajuste antiguo con factores por detalles.')
             if data['version'] >= 2 and cells[2] != current:
                 raise ValueError('El detalle y su partida deben tener la misma unidad.')
             cells[2] = current

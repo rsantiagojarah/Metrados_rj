@@ -10,7 +10,7 @@ from PySide6.QtCore import QMimeData, Qt
 from metrado.hierarchy import MAX_ROWS, MEASUREMENT_KINDS, Outline, materialize, renumber
 from metrado.display import format_two_decimals
 from metrado.sheet import _calculate_plain, new_row, validate_project
-from metrado.swelling import factor_text, upgrade_legacy, volume_blocks
+from metrado.swelling import factor_description, factor_text, upgrade_legacy, volume_blocks
 from metrado.references import check_cycles
 
 ROW_MIME = 'application/x-metrado-rows+json'
@@ -50,7 +50,8 @@ def encode_rows(model, selected):
     values, _ = _calculate_plain(wrapper + block, model.engine, sources)
     for start, end in reversed(list(volume_blocks(block))):
         summary = [''] * 14
-        summary[8:10] = ['FE', factor_text(block[start]['volume_factor'])]
+        summary[1] = factor_description(block[start]['volume_factor'])
+        summary[8:10] = ['F', factor_text(block[start]['volume_factor'])]
         total = values.get((end + len(wrapper), 14))
         summary[10] = 'Pendiente' if total is None else format_two_decimals(total)
         text.insert(end + 1, summary)
@@ -120,7 +121,7 @@ def decode_rows(raw):
         if steel and data['version'] < 5:
             raise ValueError('El acero configurado requiere portapapeles versión 5.')
         if blocks and data['version'] < 4:
-            raise ValueError('El FE por detalles requiere portapapeles versión 4.')
+            raise ValueError('El ajuste por factor en detalles requiere portapapeles versión 4.')
         if swelling and data['version'] < 3:
             raise ValueError('El bloque con esponjamiento requiere una versión de portapapeles más reciente.')
         version = 8 if area_base else 7 if references else 6 if steel else 5 if blocks else 4 if swelling else 3 if any(row['kind'] == 'detail_group' for row in rows) else 2

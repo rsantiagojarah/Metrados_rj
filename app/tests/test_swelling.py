@@ -58,8 +58,9 @@ class BlockCalculationTests(unittest.TestCase):
         self.assertEqual(self.model.values[(4, 10)], 24)
         self.assertEqual(self.model.values[(7, 13)], 24)
         self.assertEqual(self.model.swelling_footers, {4: 3})
-        self.assertEqual(self.model.swelling_summary(3)[8:11], ['FE', '1,20', '57.60'])
-        self.assertEqual(sum(bool(c) for c in self.model.swelling_summary(3)), 3)
+        self.assertEqual(self.model.swelling_summary(3)[8:11], ['F', '1,20', '57.60'])
+        self.assertEqual(self.model.swelling_summary(3)[1], 'Criterio del proyecto')
+        self.assertEqual(sum(bool(c) for c in self.model.swelling_summary(3)), 4)
         self.assertEqual(len(self.model.rows), 10)
 
     def test_several_blocks_in_one_item(self):
@@ -127,8 +128,8 @@ class BlockCalculationTests(unittest.TestCase):
     def test_factor_below_one_prorates_and_the_shares_rebuild_the_volume(self):
         self.model.set_swelling([3], config('0,80', 'Material de préstamo'))
         self.model.set_swelling([4], config('0,20', 'Material propio'))
-        self.assertEqual(self.model.swelling_summary(3)[8:11], ['FE', '0,80', '19.20'])
-        self.assertEqual(self.model.swelling_summary(4)[8:11], ['FE', '0,20', '4.80'])
+        self.assertEqual(self.model.swelling_summary(3)[8:11], ['F', '0,80', '19.20'])
+        self.assertEqual(self.model.swelling_summary(4)[8:11], ['F', '0,20', '4.80'])
         self.assertAlmostEqual(self.model.values[(3, 14)] + self.model.values[(4, 14)], 24)
         self.assertAlmostEqual(self.model.values[(1, 13)], 72)
 
@@ -203,7 +204,7 @@ class BlockCalculationTests(unittest.TestCase):
         self.model.set_swelling([3, 4], config())
         mime = encode_rows(self.model, [4])
         matrix = parse_tsv(mime.text())
-        self.assertEqual(matrix[-1][8:11], ['FE', '1,20', '28.80'])
+        self.assertEqual(matrix[-1][8:11], ['F', '1,20', '28.80'])
         self.assertEqual(json.loads(bytes(mime.data(ROW_MIME)))['version'], 4)
         block = decode_rows(mime.data(ROW_MIME))
         rows, position = insert_rows(self.model.rows, 4, block)

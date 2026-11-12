@@ -24,7 +24,7 @@ from metrado.history import RowEdit, RowStructure
 from metrado import steel_config as sc
 from metrado import references as refs
 from metrado.steel_snapshot import freeze_rows, editable_copy
-from metrado.swelling import adjusted_volume, factor_text, validate_swelling, volume_blocks, upgrade_legacy
+from metrado.swelling import adjusted_volume, factor_description, factor_text, validate_swelling, volume_blocks, upgrade_legacy
 
 LABELS = ("ÍTEM", "DESCRIPCIÓN", "Und", "Elem.\nsimil.", "Largo", "Ancho", "Alto",
           "N.º de\nveces", "Lon.", "Área", "Vol.", "Kg.", "Und.", "Total")
@@ -141,7 +141,8 @@ class SheetModel(QAbstractTableModel):
     def swelling_summary(self, owner):
         config = self.rows[owner]['volume_factor']
         cells = [''] * 14
-        cells[8] = 'FE'
+        cells[1] = factor_description(config)
+        cells[8] = 'F'
         cells[9] = factor_text(config)
         total = self.values.get((self._swelling_ends[owner], 14))
         cells[10] = 'Pendiente' if total is None else format_two_decimals(total)
@@ -156,7 +157,7 @@ class SheetModel(QAbstractTableModel):
                 row.pop('volume_factor', None)
         else:
             if not isinstance(config, dict) or set(config) != {'factor', 'note'}:
-                raise ValueError('Configuración de FE inválida.')
+                raise ValueError('Configuración de ajuste por factor inválida.')
             # Re-editing unchanged settings is a no-op; joining/replacing blocks
             # is explicit and creates an independent identity.
             old = before[0].get('volume_factor')
@@ -171,7 +172,7 @@ class SheetModel(QAbstractTableModel):
             if base is not None:
                 adjusted_volume(base, config, self.engine)
         if before != after:
-            self.undo_stack.push(RowEdit(self, start, before, after, 1, 'factor de esponjamiento'))
+            self.undo_stack.push(RowEdit(self, start, before, after, 1, 'ajuste por factor'))
 
     def _refresh_summary(self):
         self.summary_text = f"{self._items} partidas · {self._details} detalles · {self._pending} detalles pendientes"
@@ -844,12 +845,13 @@ class SheetDelegate(QStyledItemDelegate):
             painter.drawLine(footer.bottomLeft(), footer.bottomRight())
             painter.drawLine(footer.topRight(), footer.bottomRight())
             text = index.model().swelling_summary(owner)[index.column()]
-            font = QFont('Consolas')
+            font = QFont(theme.FONT_FAMILY if index.column() == 1 else 'Consolas')
             font.setPixelSize(11)
             font.setWeight(QFont.DemiBold)
             painter.setFont(font)
             painter.setPen(QColor(theme.DETAIL))
-            alignment = Qt.AlignCenter if index.column() == 8 else Qt.AlignRight | Qt.AlignVCenter
+            alignment = ((Qt.AlignLeft if index.column() == 1 else
+                          Qt.AlignCenter if index.column() == 8 else Qt.AlignRight) | Qt.AlignVCenter)
             painter.drawText(footer.adjusted(3, 0, -3, 0), alignment,
                              painter.fontMetrics().elidedText(text, Qt.ElideRight, footer.width() - 6))
         painter.restore()

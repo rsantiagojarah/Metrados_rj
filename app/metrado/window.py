@@ -607,10 +607,10 @@ class PlantillaWindow(QMainWindow):
             QMessageBox.warning(self, 'Actualizar aceros', str(error))
 
     def _swelling_actions(self):
-        self.swelling_action = QAction('Factor de esponjamiento…', self)
+        self.swelling_action = QAction('Ajuste por factor…', self)
         tag_action(self.swelling_action, 'measure.swelling', 'Metrado',
-                   'Selecciona detalles consecutivos en m³ y aplica un FE al bloque. '
-                   'Mayor que 1 esponja; entre 0 y 1 prorratea. Doble clic en FE para editar o quitar.')
+                   'Selecciona detalles consecutivos en m³ y aplica un factor al bloque. '
+                   'Describe su finalidad: esponjamiento, reparto u otro ajuste. Doble clic en F para editar o quitar.')
         self.swelling_action.triggered.connect(lambda checked=False: self.edit_swelling())
         self.edit_menu.addSeparator()
         self.edit_menu.addAction(self.swelling_action)
@@ -628,7 +628,7 @@ class PlantillaWindow(QMainWindow):
             if start == end:
                 start, end = self.model.swelling_bounds(start)
         except ValueError as error:
-            QMessageBox.information(self, 'Esponjamiento', str(error))
+            QMessageBox.information(self, 'Ajuste por factor', str(error))
             return
         configs = [self.model.rows[i].get('volume_factor') for i in range(start, end + 1)]
         config = configs[0] if all(c == configs[0] for c in configs) else None
@@ -639,7 +639,7 @@ class PlantillaWindow(QMainWindow):
                 self.model.set_swelling(range(start, end + 1), dialog.configuration())
                 self._select(start)
             except (ValueError, OverflowError) as error:
-                QMessageBox.warning(self, 'Esponjamiento', str(error))
+                QMessageBox.warning(self, 'Ajuste por factor', str(error))
         dialog.deleteLater()
 
     def _apply_structure(self, operation, *args):

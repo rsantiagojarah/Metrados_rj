@@ -28,7 +28,7 @@ SPECS = {
     'Pegar': ('▣', 'Pegar', 46),
     'Deshacer': ('↶', 'Deshacer', 58),
     'Rehacer': ('↷', 'Rehacer', 54),
-    'Factor de esponjamiento…': ('FE', 'Esponjam.', 64),
+    'Ajuste por factor…': ('F', 'Factor', 64),
     'Aplicar ganchos…': ('⌝', 'Ganchos', 56),
     'Empalmes…': ('0', 'Empalmes', 68),
 }

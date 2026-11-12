@@ -242,7 +242,7 @@ def read_database(path):
         if version >= 3:
             for detail_id, block, factor, note in connection.execute('SELECT detail_id, block_id, factor, note FROM detail_swelling'):
                 if detail_id not in by_id:
-                    raise ValueError('El FE contiene una referencia inválida.')
+                    raise ValueError('El ajuste por factor contiene una referencia inválida.')
                 by_id[detail_id]['volume_factor'] = dict(block=block, factor=factor, note=note)
         if version >= 4:
             for node_id, diameter, weight, hook, lap in connection.execute('SELECT * FROM steel_catalog'):

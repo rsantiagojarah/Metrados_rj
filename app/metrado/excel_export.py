@@ -29,7 +29,7 @@ from metrado import references as refs
 from metrado.sheet import calculate, RESULT_COLUMN
 from metrado.steel import description_base
 from metrado.steel_config import DIAMETERS, dimensions
-from metrado.swelling import volume_blocks, upgrade_legacy
+from metrado.swelling import factor_description, volume_blocks, upgrade_legacy
 from metrado.precision import input_text, normalize_rows
 
 PENDING = 'Pendiente'
@@ -482,10 +482,10 @@ class ExcelReport:
         start, r = self.ends[end], self.footers[end]
         config = self.rows[start]['volume_factor']
         self._row(self.dev, r, (), 'factor')
-        _literal(self.dev[f'B{r}'], 'Factor de esponjamiento' + (' · ' + config['note'] if config['note'] else ''))
+        _literal(self.dev[f'B{r}'], factor_description(config))
         self._text_height(self.dev, r, self.dev[f'B{r}'].value, WIDTHS[1] - 3)
         _literal(self.dev[f'C{r}'], 'm3')
-        _literal(self.dev[f'I{r}'], 'FE')
+        _literal(self.dev[f'I{r}'], 'F')
         self._input(r, 10, config['factor'])
         self.dev[f'J{r}'].number_format = COEFFICIENT_FORMAT
         a, b = self.positions[start], self.positions[end]
