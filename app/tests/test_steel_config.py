@@ -134,6 +134,33 @@ class SteelRulesTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 sc.validate_row(row)
 
+    def test_hook_base_and_laps_come_from_program_table(self):
+        row = sample()[1]
+        row['cells'][4] = '10'
+        row['steel_catalog']['1/2"'].update(hook='0.10', lap='9')
+        table = sc.initial_catalog()
+        table['1/2"'].update(hook='0.23', lap='0.70')
+        row['steel_hooks'] = dict(count=1, override=None)
+        hook, lap, count = sc.dimensions(row, defaults=table)
+        self.assertEqual((hook, lap, count), (Decimal('0.23'), Decimal('0.70'), 1))
+        row['steel_hooks']['override'] = '.31'
+        hook, lap, count = sc.dimensions(row, defaults=table)
+        self.assertEqual((hook, lap, count), (Decimal('.31'), Decimal('0.70'), 1))
+        row['steel_hooks'] = dict(count=0, override=None)
+        hook, lap, count = sc.dimensions(row, defaults=table)
+        self.assertEqual((hook, lap, count), (Decimal(0), Decimal('0.70'), 1))
+
+    def test_catalog_for_prefers_program_table_then_row_then_owner(self):
+        defaults = sc.initial_catalog()
+        defaults['3/4"'] = dict(defaults['3/4"'], weight='2.235')
+        owner = {'steel_catalog': sc.initial_catalog()}
+        owner['steel_catalog']['3/4"'] = dict(owner['steel_catalog']['3/4"'], weight='2.200')
+        row = {'steel_catalog': sc.initial_catalog()}
+        row['steel_catalog']['3/4"'] = dict(row['steel_catalog']['3/4"'], weight='2.100')
+        self.assertEqual(str(sc.unit_weight(sc.catalog_for(row, owner, defaults), '3/4"')), '2.235')
+        self.assertEqual(str(sc.unit_weight(sc.catalog_for(row, owner, None), '3/4"')), '2.100')
+        self.assertEqual(str(sc.unit_weight(sc.catalog_for({}, owner, None), '3/4"')), '2.200')
+
     def test_calculation_uses_snapshot_weight_and_ignores_stale_dimension_cache(self):
         rows = sample()
         row = rows[1]
@@ -250,14 +277,26 @@ class SteelModelTests(unittest.TestCase):
         self.model.undo_stack.undo()
         self.assertEqual(self.model.rows, before)
 
-    def test_legacy_unchanged_until_explicit_application(self):
+    def test_applied_hooks_use_table_and_custom_hook_is_kept(self):
+        table = deepcopy(sc.initial_catalog())
+        table['1/2"'].update(hook='0.50', lap='0.70')
+        self.model.steel_defaults = table
+        self.model.apply_steel_hooks([1], 1)
+        self.assertEqual(Decimal(self.model.rows[1]['cells'][5]), Decimal('0.50'))
+        self.model.apply_steel_hooks([1], 2, '.31')
+        self.assertEqual(Decimal(self.model.rows[1]['cells'][5]), Decimal('.62'))
+        self.assertTrue(self.model.setData(self.model.index(1, 4), '10'))
+        self.assertEqual(Decimal(self.model.rows[1]['cells'][6]), Decimal('0.70'))
+
+    def test_legacy_uses_configured_table_without_adopting_hooks(self):
         self.model.replace(sample(False))
+        self.assertNotIn('steel_hooks', self.model.rows[1])
         before = deepcopy(self.model.rows)
-        values = dict(self.model.values)
+        self.model.steel_defaults = deepcopy(sc.initial_catalog())
         self.model.steel_defaults['1/2"']['weight'] = '99'
         self.model.recalculate()
         self.assertEqual(self.model.rows, before)
-        self.assertEqual(self.model.values, values)
+        self.assertEqual(self.model.values[(1, 11)], 99)
         self.model.apply_steel_hooks([1], 1)
         self.assertNotIn('steel_hooks', self.model.rows[2])
         self.model.undo_stack.undo()
@@ -527,7 +566,18 @@ class SteelUiTests(unittest.TestCase):
             self.window.edit_steel_catalog()
         self.assertEqual(self.window.model.rows, before)
         self.assertEqual(self.window.model.undo_stack.count(), 0)
+        self.assertEqual(self.window.model.values[(1, 11)], 9)
         self.assertEqual(self.store.read()[0], changed)
+
+    def test_saving_table_updates_laps_and_keeps_zero_hooks(self):
+        changed = sc.initial_catalog()
+        changed['3/4"']['lap'] = '1.50'
+        with patch.object(CatalogDialog, 'exec', return_value=QDialog.Accepted), \
+             patch.object(CatalogDialog, 'configuration', return_value=changed):
+            self.window.edit_steel_catalog()
+        self.assertEqual(self.window.model.rows[1]['steel_hooks']['count'], 0)
+        self.assertEqual(Decimal(self.window.model.rows[1]['cells'][5]), 0)
+        self.assertEqual(Decimal(self.window.model.rows[2]['cells'][6]), Decimal('1.50'))
 
     def test_update_requires_confirmation_and_undo_restores(self):
         before = deepcopy(self.window.model.rows)

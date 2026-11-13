@@ -12,7 +12,10 @@ import tempfile
 from metrado.hierarchy import Outline
 from metrado import references as refs
 from metrado.precision import calculation_rows, normalize_rows
-from metrado.steel_config import dimensions as steel_dimensions, validate_row as validate_steel, sync_dimensions
+from metrado.steel_config import (
+    catalog_for, dimensions as steel_dimensions, unit_weight,
+    validate_row as validate_steel, sync_dimensions,
+)
 from metrado.swelling import adjusted_volume, validate_swelling, volume_blocks, upgrade_legacy
 
 UNITS = ("m", "m2", "m3", "kg", "und", "mes", "vje", "glb", "dia")
@@ -104,14 +107,16 @@ def subtree_end(rows, index):
     return Outline(rows).ends[index]
 
 
-def calculate(rows, engine):
+def calculate(rows, engine, steel_defaults=None):
     """Return values and errors; never store calculated cells in the document."""
+    def plain(chunk, eng, sources=None):
+        return _calculate_plain(chunk, eng, sources, steel_defaults)
     if any('reference' in row for row in rows):
-        return refs.calculate_linked(rows, engine, _calculate_plain)
-    return _calculate_plain(rows, engine)
+        return refs.calculate_linked(rows, engine, plain)
+    return _calculate_plain(rows, engine, steel_defaults=steel_defaults)
 
 
-def _calculate_plain(rows, engine, sources=None):
+def _calculate_plain(rows, engine, sources=None, steel_defaults=None):
     rows = calculation_rows(rows)
     values, errors = {}, {}
     current, quantities, invalid = None, [], False
@@ -187,10 +192,11 @@ def _calculate_plain(rows, engine, sources=None):
                 values[(index, 7)] = times
                 if not cells[7].strip():
                     raise ValueError("diameter")
-                hook, lap = (steel_dimensions(row)[:2] if 'steel_hooks' in row else
+                hook, lap = (steel_dimensions(row, rows[current], steel_defaults)[:2]
+                             if 'steel_hooks' in row else
                              (number(cells[5]) if cells[5].strip() else 0.0,
                               number(cells[6]) if cells[6].strip() else 0.0))
-                length, kg_m, quantity = engine.ask_sheet_steel(
+                length, _, _ = engine.ask_sheet_steel(
                     number(cells[4]),
                     float(hook), float(lap),
                     cells[7].strip(),
@@ -200,9 +206,9 @@ def _calculate_plain(rows, engine, sources=None):
                 )
                 values[(index, 8)] = engine.ask_sheet_quantity(
                     "m", [("longitud", length)], number(cells[3]), times, None)
-                if 'steel_hooks' in row:
-                    kg_m = number(row['steel_catalog'][cells[7]]['weight'])
-                    quantity = engine.ask_sheet_quantity('und', [], values[(index, 8)], kg_m, None)
+                kg_m = float(unit_weight(catalog_for(row, rows[current], steel_defaults),
+                                         cells[7].strip()))
+                quantity = engine.ask_sheet_quantity('und', [], values[(index, 8)], kg_m, None)
                 values[(index, 11)] = kg_m
             elif unit == 'm2':
                 measures = [number(cells[column]) for column, _ in DIMENSIONS['m2']

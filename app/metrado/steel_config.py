@@ -1,4 +1,4 @@
-"""Versioned steel inputs. Global defaults never participate in a saved calculation."""
+"""Versioned steel inputs. The program table supplies kg/m, hook base and lap."""
 from copy import deepcopy
 from decimal import Decimal, InvalidOperation, ROUND_CEILING
 import math
@@ -50,6 +50,22 @@ def expand_legacy_catalog(catalog):
     if isinstance(catalog, dict) and set(catalog) == set(DIAMETERS) - {'1/4"'}:
         return {**catalog, '1/4"': initial_catalog()['1/4"']}
     return catalog
+
+
+def catalog_for(row, owner=None, defaults=None):
+    """Program steel table always wins. Snapshots only if no table was supplied."""
+    catalog = defaults or (row or {}).get('steel_catalog') or (owner or {}).get('steel_catalog')
+    if catalog is None:
+        catalog = initial_catalog()
+    catalog = expand_legacy_catalog(catalog)
+    validate_catalog(catalog)
+    return catalog
+
+
+def unit_weight(catalog, diameter):
+    if diameter not in catalog:
+        raise ValueError('diameter')
+    return number(catalog[diameter]['weight'])
 
 
 def validate_catalog(catalog):
@@ -113,10 +129,14 @@ def set_laps(config, enabled):
         config['laps'] = False
 
 
-def dimensions(row):
-    """Per-bar hooks and laps; exact multiples do not introduce an extra splice."""
+def dimensions(row, owner=None, defaults=None):
+    """Per-bar hooks and laps; exact multiples do not introduce an extra splice.
+
+    Hook base and lap length come from the program table. count=0 means no hook;
+    a custom override keeps that length.
+    """
     config = row['steel_hooks']
-    entry = row['steel_catalog'][row['cells'][7]]
+    entry = catalog_for(row, owner, defaults)[row['cells'][7]]
     hook = number(input_text(config['override'] or entry['hook'])) * config['count']
     base = number(row['cells'][4]) + hook
     if config.get('laps', True) is False:
@@ -126,11 +146,11 @@ def dimensions(row):
     return hook, number(input_text(entry['lap'])) * count, count
 
 
-def sync_dimensions(row):
+def sync_dimensions(row, owner=None, defaults=None):
     if 'steel_hooks' not in row or row['direct']:
         return
     try:
-        hook, lap, _ = dimensions(row)
+        hook, lap, _ = dimensions(row, owner, defaults)
         row['cells'][5:7] = [str(hook), str(lap)]
     except (ValueError, KeyError):
         # Pending input is allowed, but must never display stale calculated dimensions.

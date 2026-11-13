@@ -60,21 +60,21 @@ class SheetModel(QAbstractTableModel):
     selectionRequested = Signal(int, int)
     footersChanged = Signal()
 
-    def __init__(self, engine, rows):
+    def __init__(self, engine, rows, steel_defaults=None):
         super().__init__()
         ensure_ids(rows)
         normalize_rows(rows)
         upgrade_legacy(rows)
         freeze_rows(rows)
+        self.steel_defaults = steel_defaults
         for row in rows:
-            sc.sync_dimensions(row)
+            sc.sync_dimensions(row, defaults=steel_defaults)
             sync_description(row, engine)
-        self.steel_defaults = None
         self.undo_stack = QUndoStack(self)
         self.undo_stack.setUndoLimit(200)
         self.engine, self.rows = engine, rows
         self.local_row_numbers = False
-        self.values, self.errors = calculate(rows, engine)
+        self.values, self.errors = calculate(rows, engine, steel_defaults)
         self._fonts = {}
         for textual in (False, True):
             for bold in (False, True):
@@ -388,7 +388,7 @@ class SheetModel(QAbstractTableModel):
         end = self._ends.get(start, start + 1) if index.column() == 2 else start + 1
         freeze_rows(self.rows[start:end])
         for row in self.rows[start:end]:
-            sc.sync_dimensions(row)
+            sc.sync_dimensions(row, defaults=self.steel_defaults)
             sync_description(row, self.engine)
 
     def _set_data(self, index, value, role=Qt.EditRole):
@@ -505,7 +505,9 @@ class SheetModel(QAbstractTableModel):
         footer_changed = False
         if row is None or self._dependencies.blocked:
             previous_footers = self.swelling_footers
-            self.values, self.errors = calculate(self.rows, self.engine)
+            for item in self.rows:
+                sc.sync_dimensions(item, defaults=self.steel_defaults)
+            self.values, self.errors = calculate(self.rows, self.engine, self.steel_defaults)
             self._rebuild_structure()
             footer_changed = previous_footers != self.swelling_footers
             self._pending = sum(self.rows[r]["kind"] == "detail" for r in self.errors)
@@ -519,7 +521,7 @@ class SheetModel(QAbstractTableModel):
             end = row + 1 if owner is None else self._ends[owner]
             before = sum(r in self.errors and self.rows[r]["kind"] == "detail"
                          for r in range(start, end))
-            values, errors = calculate(self.rows[start:end], self.engine)
+            values, errors = calculate(self.rows[start:end], self.engine, self.steel_defaults)
             for r in range(start, end):
                 self.errors.pop(r, None)
                 for column in range(15):
@@ -553,7 +555,8 @@ class SheetModel(QAbstractTableModel):
         for start in affected:
             end = self._ends[start]
             before = sum(r in self.errors and self.rows[r]['kind'] == 'detail' for r in range(start, end))
-            values, errors = _calculate_plain(self.rows[start:end], self.engine, sources)
+            values, errors = _calculate_plain(
+                self.rows[start:end], self.engine, sources, self.steel_defaults)
             for r in range(start, end):
                 self.errors.pop(r, None)
                 for c in range(15):
@@ -591,8 +594,7 @@ class SheetModel(QAbstractTableModel):
 
     def paste_mapped_cells(self, targets, selection):
         """Same atomic edit path for visible tree cells and sheet rectangles."""
-        staged = SheetModel(self.engine, deepcopy(self.rows))
-        staged.steel_defaults = self.steel_defaults
+        staged = SheetModel(self.engine, deepcopy(self.rows), self.steel_defaults)
         staged._batching = True
         changed = editable = False
         for r, c, value in targets:
@@ -620,7 +622,7 @@ class SheetModel(QAbstractTableModel):
         upgrade_legacy(rows)
         freeze_rows(rows)
         for row in rows:
-            sc.sync_dimensions(row)
+            sc.sync_dimensions(row, defaults=self.steel_defaults)
             sync_description(row, self.engine)
         if label is not None:
             if rows != self.rows:
@@ -635,7 +637,7 @@ class SheetModel(QAbstractTableModel):
         freeze_rows(rows)
         self.beginResetModel()
         self.rows = rows
-        self.values, self.errors = calculate(rows, self.engine)
+        self.values, self.errors = calculate(rows, self.engine, self.steel_defaults)
         self._rebuild_structure()
         self._pending = sum(self.rows[r]["kind"] == "detail" for r in self.errors)
         self._refresh_summary()
@@ -645,9 +647,8 @@ class SheetModel(QAbstractTableModel):
     def steel_catalog_for(self, index):
         row = self.rows[index]
         owner = self._owners[index]
-        return editable_copy(row.get('steel_catalog') or
-                        (self.rows[owner].get('steel_catalog') if owner is not None else None) or
-                        self.steel_defaults or sc.initial_catalog())
+        owner_row = self.rows[owner] if owner is not None else None
+        return editable_copy(sc.catalog_for(row, owner_row, self.steel_defaults))
 
     def apply_steel_hooks(self, selected, count, override=None):
         indexes = sc.selected_details(self.rows, selected)
@@ -667,7 +668,7 @@ class SheetModel(QAbstractTableModel):
             row['steel_hooks'] = dict(count=count, override=override)
             if omit:
                 row['steel_hooks']['laps'] = False
-            sc.sync_dimensions(row)
+            sc.sync_dimensions(row, defaults=self.steel_defaults)
         self.replace(rows, 'aplicación de ganchos', (indexes[0], 1), (indexes[0], 1))
 
     def apply_steel_laps(self, selected, enabled):
@@ -683,12 +684,13 @@ class SheetModel(QAbstractTableModel):
                 sc.adopt(rows[owner], catalog)
             sc.adopt(row, catalog, preserve_hooks=True)
             sc.set_laps(row['steel_hooks'], enabled)
-            sc.sync_dimensions(row)
+            sc.sync_dimensions(row, defaults=self.steel_defaults)
         self.replace(rows, 'cálculo de empalmes' if enabled else 'empalmes omitidos',
                      (indexes[0], 1), (indexes[0], 1))
 
     def update_steel_catalog(self, catalog):
         sc.validate_catalog(catalog)
+        self.steel_defaults = catalog
         rows = deepcopy(self.rows)
         for row in rows:
             if row['kind'] in ('item', 'detail') and row['cells'][2] == 'kg':

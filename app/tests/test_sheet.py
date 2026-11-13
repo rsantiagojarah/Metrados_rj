@@ -15,6 +15,7 @@ import metrado._enlace as engine
 from metrado.grid import SheetModel
 from metrado.sheet import calculate, example_rows, new_row, read_project, write_project
 from metrado.steel import STEEL_LABELS, apply_bar_spec, header_mode
+from metrado.steel_store import CatalogStore
 from metrado.window import PlantillaWindow
 
 APP = QApplication.instance() or QApplication([])
@@ -305,7 +306,8 @@ class SheetTests(unittest.TestCase):
 
 class WindowTests(unittest.TestCase):
     def setUp(self):
-        self.window = PlantillaWindow(engine)
+        self.temp = tempfile.TemporaryDirectory()
+        self.window = PlantillaWindow(engine, catalog_store=CatalogStore(Path(self.temp.name) / 'steel.db'))
         self.window.show()
         APP.processEvents()
 
@@ -314,6 +316,7 @@ class WindowTests(unittest.TestCase):
         self.window.close()
         self.window.deleteLater()
         APP.processEvents()
+        self.temp.cleanup()
 
     def test_example_opens_on_steel_partida(self):
         self.assertEqual(self.window.table.horizontalHeader().mode, "steel")
@@ -366,7 +369,8 @@ class WindowTests(unittest.TestCase):
         self.assertEqual(model.rows[15]["cells"][9], "1")
         self.assertEqual(model.rows[15]["cells"][10], "53")
         self.assertIn('Ø1/2"', model.rows[15]["cells"][1])
-        self.assertEqual(model.values[(15, 12)], 1329.19)
+        self.assertEqual(model.values[(15, 11)], float(model.steel_defaults['1/2"']['weight']))
+        self.assertNotEqual(model.values[(15, 12)], before)
         self.assertAlmostEqual(model.values[(15, 8)], 1336.66)
         self.assertFalse(model.setData(model.index(15, 9), "inválido"))
         self.assertEqual(model.data(model.index(15, 9)), '1/2"')

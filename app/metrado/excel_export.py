@@ -26,9 +26,9 @@ from openpyxl.workbook.properties import CalcProperties
 
 from metrado.hierarchy import materialize
 from metrado import references as refs
-from metrado.sheet import calculate, RESULT_COLUMN
+from metrado.sheet import calculate, RESULT_COLUMN, parent_item
 from metrado.steel import description_base
-from metrado.steel_config import DIAMETERS, dimensions
+from metrado.steel_config import catalog_for, dimensions
 from metrado.swelling import factor_description, volume_blocks, upgrade_legacy
 from metrado.precision import input_text, normalize_rows
 
@@ -38,6 +38,7 @@ NUMBER_FORMAT = '#,##0.00;[Red]-#,##0.00;0.00'
 INPUT_FORMAT = NUMBER_FORMAT
 COUNT_FORMAT = 'General'
 COEFFICIENT_FORMAT = '0.###############'
+STEEL_WEIGHT_FORMAT = '0.######'
 FONT = 'Arial Narrow'
 BODY_SIZE = 8
 FIRST_ROW = 12
@@ -74,12 +75,13 @@ def _guard(expression, required, conditions=()):
 
 
 class ExcelReport:
-    def __init__(self, title, rows, engine, formulas=True):
+    def __init__(self, title, rows, engine, formulas=True, steel_defaults=None):
         self.rows = materialize(rows, immutable_catalogs=True)
         normalize_rows(self.rows)
         upgrade_legacy(self.rows)
         refs.check_cycles(self.rows)
-        self.values, self.errors = calculate(self.rows, engine)
+        self.steel_defaults = steel_defaults
+        self.values, self.errors = calculate(self.rows, engine, steel_defaults)
         self.engine = engine
         self.formulas = formulas
         self.title = title or 'Planilla de metrados'
@@ -265,19 +267,8 @@ class ExcelReport:
         sheet['B5'].number_format = 'dd/mm/yyyy'
         self._frame_box(sheet, 3, 7, len(widths))
 
-    def _catalog(self, row):
-        catalog = row.get('steel_catalog') if 'steel_hooks' in row else None
-        if catalog is None:
-            # Legacy bars retain the Rust density-based weights and manual lengths.
-            catalog = {d: {'weight': str(self.engine.ask_sheet_steel(1., 0., 0., d, 1., 1., 1.)[1]),
-                           'hook': '0', 'lap': '0'} for d in DIAMETERS}
-            d = row['cells'][7]
-            if d and d not in catalog:
-                try:
-                    catalog[d] = {'weight': str(self.engine.ask_sheet_steel(1., 0., 0., d, 1., 1., 1.)[1]),
-                                  'hook': '0', 'lap': '0'}
-                except ValueError:
-                    pass
+    def _catalog(self, row, owner=None):
+        catalog = catalog_for(row, owner, self.steel_defaults)
         key = tuple((d, *(entry[f] for f in ('weight', 'hook', 'lap'))) for d, entry in catalog.items())
         if key not in self.catalogs:
             start = self.catalog_cursor
@@ -434,12 +425,15 @@ class ExcelReport:
         self._input(r, 8, effective if effective is not None and math.isfinite(effective) else PENDING, count=True)
         _literal(self.dev[f'J{r}'], cells[7])
         self.dev[f'J{r}'].font = self.input_font
-        (start, end), catalog = self._catalog(row)
+        owner_index = parent_item(self.rows, i)
+        owner = self.rows[owner_index] if owner_index is not None else None
+        (start, end), catalog = self._catalog(row, owner)
         match = f'MATCH(J{r},$X${start}:$X${end},0)'
         weight = f'INDEX($Y${start}:$Y${end},{match})'
         entry = catalog.get(cells[7], {})
-        self._formula(self.dev, f'K{r}', f'IFERROR({weight},"{PENDING}")', self.values.get((i, 11), _number(entry.get('weight', ''), PENDING)))
-        self.dev[f'K{r}'].number_format = COEFFICIENT_FORMAT
+        cached_weight = _number(entry.get('weight', ''), self.values.get((i, 11), PENDING))
+        self._formula(self.dev, f'K{r}', f'IFERROR({weight},"{PENDING}")', cached_weight)
+        self.dev[f'K{r}'].number_format = STEEL_WEIGHT_FORMAT
         validation = DataValidation(type='list', formula1=f'$X${start}:$X${end}', allow_blank=True)
         validation.errorTitle, validation.error = 'Diámetro', 'Elige un diámetro de la lista.'
         validation.showErrorMessage = True
@@ -452,7 +446,7 @@ class ExcelReport:
             self._formula(self.dev, f'S{r}', f'IFERROR(INDEX($AA${start}:$AA${end},{match}),"{PENDING}")', _number(input_text(entry.get('lap', '')), PENDING))
             self._formula(self.dev, f'T{r}', f'IFERROR(INDEX($Z${start}:$Z${end},{match}),"{PENDING}")', _number(input_text(entry.get('hook', '')), PENDING))
             try:
-                hook, lap, _ = dimensions(row)
+                hook, lap, _ = dimensions(row, owner, self.steel_defaults)
                 hook, lap = float(hook), float(lap)
             except (ValueError, KeyError):
                 hook = lap = PENDING
@@ -562,9 +556,9 @@ remains enabled; these caches make previews/data-only readers useful immediately
                 target.writestr(entry, data)
 
 
-def export_workbook(path, title, rows, engine, formulas=True):
+def export_workbook(path, title, rows, engine, formulas=True, steel_defaults=None):
     """Atomic export; the destination is unchanged if construction or saving fails."""
-    report = ExcelReport(title, rows, engine, formulas=formulas)
+    report = ExcelReport(title, rows, engine, formulas=formulas, steel_defaults=steel_defaults)
     path, temporary = Path(path), None
     try:
         with tempfile.NamedTemporaryFile(dir=path.parent, prefix='.metrado-excel-', suffix='.tmp', delete=False) as stream:

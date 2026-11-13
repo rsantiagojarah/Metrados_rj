@@ -26,7 +26,10 @@ class CatalogDialog(QDialog):
         self.resize(680, 650)
         self.original = deepcopy(catalog)
         layout = QVBoxLayout(self)
-        layout.addWidget(label('Valores para nuevas partidas. Guardar esta tabla NO recalcula las obras existentes.'))
+        layout.addWidget(label(
+            'Esta tabla alimenta el cálculo y el Excel: kg/m y empalmes de toda la obra. '
+            'El gancho base también, si aplicaste ganchos; si no, la columna queda en 0. '
+            'Un gancho personalizado no se sustituye.'))
         self.table = QTableWidget(len(DIAMETERS), 4)
         self.table.setHorizontalHeaderLabels(['Diámetro', 'Peso (kg/m)', 'Gancho 90° (m)', 'Empalme (m)'])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)

@@ -61,7 +61,6 @@ class PlantillaWindow(QMainWindow):
         self.setStatusBar(ContextStatusBar(self))
         self.resize(1480, 780)
         self.setMinimumSize(900, 480)
-        self.model = SheetModel(enlace, example_rows() if initial_rows is None else initial_rows)
         self.catalog_store = catalog_store or CatalogStore()
         self.wall_type_store = WallTypeStore(self.catalog_store.path.with_name('muros.sqlite3'))
         self.shortcut_store = shortcut_store or ShortcutStore(
@@ -70,10 +69,13 @@ class PlantillaWindow(QMainWindow):
         self._catalog_error = None
         self._distribution_error = None
         self.steel_distribution_template = DEFAULT_TEMPLATE
+        steel_defaults = None
         try:
-            self.model.steel_defaults, _ = self.catalog_store.read()
+            steel_defaults, _ = self.catalog_store.read()
         except (OSError, ValueError, sqlite3.Error) as error:
             self._catalog_error = str(error)
+        self.model = SheetModel(
+            enlace, example_rows() if initial_rows is None else initial_rows, steel_defaults)
         try:
             self.steel_distribution_template, _ = self.catalog_store.read_distribution_format()
         except (OSError, ValueError, sqlite3.Error) as error:
@@ -551,7 +553,10 @@ class PlantillaWindow(QMainWindow):
             self.catalog_store.save(catalog, revision)
             self.model.steel_defaults = catalog
             self._catalog_error = None
-            self.statusBar().showMessage('Tabla global guardada. Los valores de esta obra no se modificaron.', 8000)
+            self.model.recalculate()
+            self.statusBar().showMessage(
+                'Tabla global guardada. kg/m y empalmes usan estos valores; '
+                'los ganchos personalizados se conservan.', 8000)
         except (OSError, ValueError, sqlite3.Error) as error:
             QMessageBox.warning(self, 'Tabla global de aceros', str(error))
 
@@ -1311,8 +1316,9 @@ class PlantillaWindow(QMainWindow):
         from metrado.excel_export import export_workbook
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
-            count, pending = export_workbook(path, self.title_edit.text(), self.model.rows, self._enlace,
-                                            formulas=formulas)
+            count, pending = export_workbook(
+                path, self.title_edit.text(), self.model.rows, self._enlace,
+                formulas=formulas, steel_defaults=self.model.steel_defaults)
         except (OSError, ValueError) as error:
             QMessageBox.warning(self, 'No se pudo exportar Excel', str(error))
             return False

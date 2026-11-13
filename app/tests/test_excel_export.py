@@ -11,7 +11,7 @@ from openpyxl import load_workbook
 from PySide6.QtCore import QCoreApplication, QEvent
 from PySide6.QtWidgets import QApplication, QToolBar, QMessageBox
 import metrado._enlace as engine
-from metrado.excel_export import ExcelReport, export_workbook, PENDING, COEFFICIENT_FORMAT
+from metrado.excel_export import ExcelReport, export_workbook, PENDING, STEEL_WEIGHT_FORMAT
 from metrado.display import format_two_decimals
 from metrado.identity import ensure_ids
 from metrado.references import make_reference
@@ -173,11 +173,106 @@ class ExcelExportTests(unittest.TestCase):
         book, cache = self.read(rows)
         steel = report.positions[8]
         item = report.positions[7]
-        self.assertEqual(book['Desarrollo'][f'K{steel}'].number_format, COEFFICIENT_FORMAT)
+        self.assertEqual(book['Desarrollo'][f'K{steel}'].number_format, STEEL_WEIGHT_FORMAT)
         self.assertEqual(cache['Desarrollo'][f'K{steel}'].value,
                          float(rows[8]['steel_catalog']['1/2"']['weight']))
         self.assertTrue(book['Desarrollo'][f'N{item}'].alignment.shrink_to_fit)
         self.assertEqual(book['Desarrollo'][f'B{item}'].font.sz, 8)
+
+    def test_program_table_overrides_partida_snapshot_in_sheet_and_excel(self):
+        rows = [new_row('item', '01', 'ZAPATAS', 'kg', 0),
+                steel_detail('Muro Ø3/4"', 1, 5.00, 0.80, 0.00, '3/4"', 24)]
+        snapshot = sc.initial_catalog()
+        snapshot['3/4"']['weight'] = '2.100'
+        rows[0]['steel_catalog'] = snapshot
+        rows[1]['steel_catalog'] = snapshot
+        table = sc.initial_catalog()
+        table['3/4"']['weight'] = '2.235'
+        values, errors = calculate(rows, engine, table)
+        self.assertFalse(errors)
+        self.assertEqual(values[(1, 11)], 2.235)
+        self.assertEqual(values[(1, 12)], 311.11)
+        report = ExcelReport('Obra', rows, engine, steel_defaults=table)
+        export_workbook(self.path, 'Obra', rows, engine, steel_defaults=table)
+        cache = load_workbook(self.path, data_only=True)
+        self.books.append(cache)
+        steel = report.positions[1]
+        self.assertEqual(cache['Desarrollo'][f'K{steel}'].value, 2.235)
+        self.assertEqual(cache['Desarrollo'][f'L{steel}'].value, values[(1, 12)])
+
+    def test_excel_hook_base_and_laps_use_program_table(self):
+        rows = [new_row('item', '01', 'ACERO', 'kg', 0),
+                steel_detail('Barra Ø1/2"', 1, 10, 0, 0, '1/2"', 1)]
+        snapshot = sc.initial_catalog()
+        snapshot['1/2"'].update(hook='0.10', lap='9', weight='0.994')
+        sc.adopt(rows[0], snapshot)
+        sc.adopt(rows[1], snapshot)
+        rows[1]['steel_hooks'] = dict(count=1, override=None)
+        table = sc.initial_catalog()
+        table['1/2"'].update(hook='0.23', lap='0.70', weight='0.994')
+        values, errors = calculate(rows, engine, table)
+        self.assertFalse(errors)
+        hook, lap, splices = sc.dimensions(rows[1], rows[0], table)
+        self.assertEqual((float(hook), float(lap), splices), (0.23, 0.70, 1))
+        export_workbook(self.path, 'Obra', rows, engine, steel_defaults=table)
+        cache = load_workbook(self.path, data_only=True)
+        self.books.append(cache)
+        steel = ExcelReport('Obra', rows, engine, steel_defaults=table).positions[1]
+        self.assertEqual(cache['Desarrollo'][f'F{steel}'].value, 0.23)
+        self.assertEqual(cache['Desarrollo'][f'G{steel}'].value, 0.70)
+
+    def test_legacy_steel_matches_configured_table_in_sheet_and_excel(self):
+        rows = [new_row('item', '03.01.02.04', 'ZAPATAS, ACERO', 'kg', 0),
+                steel_detail('Muro - Zapata - transversal - Superior 24 Ø3/4"',
+                             1, 5.00, 0.80, 0.00, '3/4"', 24)]
+        catalog = sc.initial_catalog()
+        catalog['3/4"']['weight'] = '2.235'
+        values, errors = calculate(rows, engine, catalog)
+        self.assertFalse(errors)
+        self.assertEqual(values[(1, 11)], 2.235)
+        self.assertEqual(values[(1, 12)], 311.11)
+        report = ExcelReport('Obra', rows, engine, steel_defaults=catalog)
+        export_workbook(self.path, 'Obra', rows, engine, steel_defaults=catalog)
+        cache = load_workbook(self.path, data_only=True)
+        self.books.append(cache)
+        steel = report.positions[1]
+        self.assertEqual(cache['Desarrollo'][f'K{steel}'].value, 2.235)
+        self.assertEqual(cache['Desarrollo'][f'L{steel}'].value, 311.11)
+        self.assertEqual(cache['Desarrollo'][f'L{steel}'].value, values[(1, 12)])
+
+    def test_legacy_three_quarter_kg_per_m_uses_six_decimals(self):
+        rows = [new_row('item', '03.01.02.04', 'ZAPATAS, ACERO', 'kg', 0),
+                steel_detail('Muro - Zapata - transversal - Superior 24 Ø3/4"',
+                             1, 5.00, 0.80, 0.00, '3/4"', 24)]
+        rust = engine.ask_sheet_steel(1.0, 0.0, 0.0, '3/4"', 1.0, 1.0, 1.0)[1]
+        self.assertAlmostEqual(rust, 2.237430212389888, places=12)
+        report = ExcelReport('Obra', rows, engine)
+        book, cache = self.read(rows)
+        steel = report.positions[1]
+        kg_m = cache['Desarrollo'][f'K{steel}'].value
+        expected = float(f'{rust:.6f}')
+        self.assertEqual(kg_m, expected)
+        self.assertNotEqual(kg_m, rust)
+        self.assertEqual(cache['Desarrollo'][f'L{steel}'].value, 311.45)
+        self.assertEqual(book['Desarrollo'][f'K{steel}'].number_format, STEEL_WEIGHT_FORMAT)
+        hidden = {book['Desarrollo'].cell(row, 24).value: book['Desarrollo'].cell(row, 25).value
+                  for row in range(2, 12)}
+        self.assertEqual(hidden['3/4"'], expected)
+
+    def test_catalog_steel_weight_is_kept_verbatim(self):
+        rows = [new_row('item', '01', 'ACERO', 'kg', 0),
+                steel_detail('Barra Ø1/2"', 1, 5.00, 0.46, 0.00, '1/2"', 10)]
+        catalog = sc.initial_catalog()
+        catalog['1/2"']['weight'] = '0.994'
+        catalog['3/4"']['weight'] = '2.235'
+        sc.adopt(rows[0], catalog)
+        sc.adopt(rows[1], catalog)
+        rows[1]['steel_hooks'] = dict(count=0, override=None)
+        sc.sync_dimensions(rows[1])
+        report = ExcelReport('Obra', rows, engine)
+        _book, cache = self.read(rows)
+        steel = report.positions[1]
+        self.assertEqual(cache['Desarrollo'][f'K{steel}'].value, 0.994)
 
     def test_steel_uses_item_row_labels_without_extra_gray_header(self):
         rows = comprehensive_rows()
